@@ -1,0 +1,338 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="星智行智慧路况交互中枢：融合星闪协同、端侧视觉识别、雷达轨迹与电子墨水屏，提供实时监测、事故预警、语音交互与移动端孪生控制。" />
+  <meta name="keywords" content="星智行,智慧路况,电子墨水屏,NearLink,星闪,Hi3863,车祸预警,智慧交通" />
+  <meta name="author" content="星智行项目组" />
+  <meta name="robots" content="index,follow,max-image-preview:large" />
+  <meta name="theme-color" content="#0f1a2f" />
+  <meta name="format-detection" content="telephone=no,email=no,address=no" />
+  <link rel="canonical" href="https://traffic-sign.example.com/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:site_name" content="星智行" />
+  <meta property="og:title" content="星智行 · 智慧路况交互中枢" />
+  <meta property="og:description" content="智慧路况交互系统，支持事故预警、语音播报、环境监测、节点协同与路牌孪生控制。" />
+  <meta property="og:url" content="https://traffic-sign.example.com/" />
+  <meta property="og:image" content="https://traffic-sign.example.com/og-cover.svg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="星智行 · 智慧路况交互中枢" />
+  <meta name="twitter:description" content="星闪协同 + 端侧视觉识别 + 电子墨水屏的智慧交通交互演示平台。" />
+  <meta name="twitter:image" content="https://traffic-sign.example.com/og-cover.svg" />
+  <title>星智行 · 智慧路况交互中枢</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="./site.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=ZCOOL+XiaoWei&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "星智行智慧路况交互中枢",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "description": "基于星闪协同与端侧视觉识别的智慧路况交互平台，支持事故预警、语音播报、环境监测和移动端孪生控制。",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "CNY"
+      }
+    }
+  </script>
+</head>
+<body data-scene="normal">
+  <div class="noise-layer"></div>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+
+  <header class="appbar reveal" data-delay="0.04">
+    <div class="brand-wrap">
+      <span class="brand-mark"></span>
+      <div>
+        <h1>星智行</h1>
+        <p>NearLink 智慧语音电子墨水屏路牌控制台</p>
+      </div>
+    </div>
+
+    <nav class="nav-links">
+      <a href="#deck">总览</a>
+      <a href="#digital">数字孪生</a>
+      <a href="#analytics">趋势与事件</a>
+      <a href="#control">交互控制</a>
+    </nav>
+
+    <div class="system-badge" id="systemBadge">系统巡航中</div>
+  </header>
+
+  <main class="page">
+    <section class="deck reveal" id="deck" data-delay="0.1">
+      <article class="deck-main">
+        <p class="deck-tag">Hi3863 + SLE 星闪 + 端侧视觉识别</p>
+        <h2>将路口变成可感知、可协同、可预警的智能节点</h2>
+        <p class="deck-copy">融合雷达轨迹、GPS/北斗定位、环境传感与语音播报能力，实现高可读电子墨水屏常显与事故秒级告警联动。</p>
+
+        <div class="scene-switch" id="sceneSwitch">
+          <button class="scene-btn active" data-scene="normal">日常巡航</button>
+          <button class="scene-btn" data-scene="peak">晚高峰</button>
+          <button class="scene-btn" data-scene="rain">雨天低能见</button>
+          <button class="scene-btn" data-scene="maintenance">维护补能</button>
+        </div>
+
+        <div class="primary-actions">
+          <button id="simulateAlertBtn" class="btn btn-danger">触发事故告警</button>
+          <button id="resetBtn" class="btn btn-ghost">恢复巡航状态</button>
+          <button id="smartPatrolBtn" class="btn btn-primary">执行智能巡检</button>
+        </div>
+
+        <div class="quick-status">
+          <div class="q-item"><span>星闪链路</span><strong id="linkState">稳定</strong></div>
+          <div class="q-item"><span>语音系统</span><strong id="voiceState">在线</strong></div>
+          <div class="q-item"><span>事故识别</span><strong id="accidentState">正常</strong></div>
+          <div class="q-item"><span>端到端时延</span><strong id="latencyValue">21 ms</strong></div>
+        </div>
+      </article>
+
+      <aside class="health-panel">
+        <h3>系统健康度</h3>
+        <div class="health-ring-wrap">
+          <svg class="health-ring" viewBox="0 0 200 200" aria-hidden="true">
+            <circle cx="100" cy="100" r="76" class="ring-bg"></circle>
+            <circle cx="100" cy="100" r="76" class="ring-track"></circle>
+            <circle id="healthRing" cx="100" cy="100" r="76" class="ring-value"></circle>
+          </svg>
+          <div class="health-center">
+            <strong id="healthValue">96</strong>
+            <span>健康指数</span>
+          </div>
+        </div>
+        <p id="healthHint" class="health-hint">全部节点在线，策略引擎运行平稳。</p>
+      </aside>
+    </section>
+
+    <section class="kpi-band reveal" data-delay="0.14">
+      <article class="kpi-card">
+        <p>温度</p>
+        <h4><span id="tempValue">--</span>°C</h4>
+      </article>
+      <article class="kpi-card">
+        <p>湿度</p>
+        <h4><span id="humidityValue">--</span>%</h4>
+      </article>
+      <article class="kpi-card">
+        <p>气压</p>
+        <h4><span id="pressureValue">--</span>hPa</h4>
+      </article>
+      <article class="kpi-card">
+        <p>目标车速</p>
+        <h4><span id="speedValue">--</span>km/h</h4>
+      </article>
+      <article class="kpi-card">
+        <p>太阳能储能</p>
+        <h4><span id="solarValue">--</span>%</h4>
+      </article>
+      <article class="kpi-card">
+        <p>识别置信度</p>
+        <h4><span id="detectionValue">--</span>%</h4>
+      </article>
+      <article class="kpi-card">
+        <p>路口经纬度</p>
+        <h4 id="gpsValue">--</h4>
+      </article>
+    </section>
+
+    <section class="grid-2 reveal" id="digital" data-delay="0.18">
+      <article class="panel digital-panel">
+        <div class="panel-head">
+          <h3>道路数字孪生雷达</h3>
+          <p>模拟毫米波轨迹 + 视觉目标融合</p>
+        </div>
+        <canvas id="radarCanvas" width="860" height="340" aria-label="道路目标雷达"></canvas>
+        <ul class="target-list" id="targetList"></ul>
+      </article>
+
+      <div class="stack">
+        <article class="panel ink-panel">
+          <div class="panel-head">
+            <h3>电子墨水屏预览</h3>
+            <p>强光可读 / 低功耗常显</p>
+          </div>
+          <div class="ink-screen" id="inkScreen">
+            <div class="ink-head">
+              <strong id="inkSignName">星智行路牌 A-12</strong>
+              <span id="inkDate">--</span>
+            </div>
+            <div class="ink-row"><span>位置</span><strong id="inkLocation">--</strong></div>
+            <div class="ink-row"><span>海拔</span><strong id="inkAltitude">--</strong></div>
+            <div class="ink-row"><span>温度 / 湿度</span><strong id="inkWeather">--</strong></div>
+            <div class="ink-row"><span>事故状态</span><strong id="inkAlert">通行正常</strong></div>
+            <div class="ink-row"><span>播报状态</span><strong id="inkVoice">语音在线</strong></div>
+            <p class="ink-notice" id="inkNotice">提示：前方路口请减速慢行。</p>
+          </div>
+        </article>
+
+        <article class="panel power-panel">
+          <div class="panel-head">
+            <h3>能源保障监控</h3>
+            <p>太阳能 + 无线补能 + Type-C 应急</p>
+          </div>
+          <div class="power-row">
+            <span>太阳能输入</span>
+            <div class="bar"><i id="solarBar"></i></div>
+            <strong id="solarText">--%</strong>
+          </div>
+          <div class="power-row">
+            <span>无线补能</span>
+            <div class="bar"><i id="wirelessBar"></i></div>
+            <strong id="wirelessText">--%</strong>
+          </div>
+          <div class="power-row">
+            <span>USB 应急</span>
+            <div class="bar"><i id="usbBar"></i></div>
+            <strong id="usbText">--%</strong>
+          </div>
+          <div class="battery-total">
+            <span>综合续航评估</span>
+            <strong id="batteryPercent">--%</strong>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="grid-2 reveal" id="analytics" data-delay="0.22">
+      <article class="panel chart-panel">
+        <div class="panel-head">
+          <h3>多维趋势曲线</h3>
+          <p>环境与交通特征同屏分析</p>
+        </div>
+        <div class="line-toggle" id="lineToggle">
+          <button class="line-btn active" data-line="temp">温度</button>
+          <button class="line-btn active" data-line="humidity">湿度</button>
+          <button class="line-btn active" data-line="speed">速度</button>
+        </div>
+        <canvas id="trendCanvas" width="860" height="300" aria-label="趋势曲线图"></canvas>
+      </article>
+
+      <article class="panel event-panel">
+        <div class="panel-head">
+          <h3>事件时间线</h3>
+          <p>预警、播报、策略下发与节点变更日志</p>
+        </div>
+        <div class="filter-row" id="eventFilters">
+          <button class="filter-btn active" data-filter="all">全部</button>
+          <button class="filter-btn" data-filter="info">信息</button>
+          <button class="filter-btn" data-filter="warn">预警</button>
+          <button class="filter-btn" data-filter="alert">告警</button>
+        </div>
+        <ul id="eventTimeline" class="timeline"></ul>
+      </article>
+    </section>
+
+    <section class="grid-2 reveal" id="control" data-delay="0.26">
+      <article class="panel control-panel">
+        <div class="panel-head">
+          <h3>移动端孪生控制台</h3>
+          <p>参数下发、阈值设置、播报策略切换</p>
+        </div>
+        <form id="controlForm" class="control-form">
+          <label>
+            路牌名称
+            <input id="signNameInput" type="text" value="星智行路牌 A-12" maxlength="28" />
+          </label>
+          <label>
+            临时显示内容
+            <input id="noticeInput" type="text" value="提示：前方路口请减速慢行。" maxlength="80" />
+          </label>
+          <label>
+            车速预警阈值
+            <input id="thresholdInput" type="range" min="20" max="120" value="60" />
+            <span id="thresholdText">60 km/h</span>
+          </label>
+          <label class="switch-row">
+            语音播报
+            <button type="button" id="voiceToggle" class="toggle on" aria-pressed="true">已启用</button>
+          </label>
+          <div class="actions-row">
+            <button type="submit" class="btn btn-primary">下发配置</button>
+            <button type="button" id="broadcastBtn" class="btn btn-ghost">发送临时播报</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="panel voice-panel">
+        <div class="panel-head">
+          <h3>语音问答与策略引擎</h3>
+          <p>唤醒词、问答、应急策略提示</p>
+        </div>
+        <div class="voice-actions">
+          <button class="btn btn-ghost" data-query="wake">唤醒小星</button>
+          <button class="btn btn-ghost" data-query="weather">播报天气</button>
+          <button class="btn btn-ghost" data-query="status">播报路况</button>
+          <button class="btn btn-ghost" data-query="energy">播报电源状态</button>
+        </div>
+        <div class="voice-input-row">
+          <input id="voiceInput" type="text" placeholder="输入语音问题，例如：当前是否有事故？" />
+          <button id="voiceAskBtn" type="button" class="btn btn-primary">提交问答</button>
+        </div>
+        <div id="assistantOutput" class="assistant-output"></div>
+      </article>
+    </section>
+
+    <section class="panel topology-panel reveal" data-delay="0.32">
+      <div class="panel-head">
+        <h3>端侧协同拓扑</h3>
+        <p>Master + Slave 设备联动，可点击节点查看并切换状态</p>
+      </div>
+      <div class="topology-body">
+        <svg id="nodeSvg" class="node-svg" viewBox="0 0 760 280" aria-label="节点拓扑图">
+          <line x1="380" y1="140" x2="140" y2="70"></line>
+          <line x1="380" y1="140" x2="140" y2="210"></line>
+          <line x1="380" y1="140" x2="620" y2="70"></line>
+          <line x1="380" y1="140" x2="620" y2="210"></line>
+          <line x1="380" y1="140" x2="380" y2="40"></line>
+
+          <g class="node-point" data-node="master" transform="translate(380 140)">
+            <circle r="32"></circle>
+            <text y="6" text-anchor="middle">Master</text>
+          </g>
+          <g class="node-point" data-node="radar" transform="translate(140 70)">
+            <circle r="26"></circle>
+            <text y="6" text-anchor="middle">雷达</text>
+          </g>
+          <g class="node-point" data-node="env" transform="translate(140 210)">
+            <circle r="26"></circle>
+            <text y="6" text-anchor="middle">环境</text>
+          </g>
+          <g class="node-point" data-node="gps" transform="translate(620 70)">
+            <circle r="26"></circle>
+            <text y="6" text-anchor="middle">GPS</text>
+          </g>
+          <g class="node-point" data-node="voice" transform="translate(620 210)">
+            <circle r="26"></circle>
+            <text y="6" text-anchor="middle">语音</text>
+          </g>
+          <g class="node-point" data-node="vision" transform="translate(380 40)">
+            <circle r="26"></circle>
+            <text y="6" text-anchor="middle">视觉</text>
+          </g>
+        </svg>
+
+        <div class="node-side">
+          <div id="nodeDetail" class="node-detail">点击任意节点查看状态详情。</div>
+          <div id="nodeGrid" class="node-grid"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer reveal" data-delay="0.36">
+    <p>星智行 · 智慧路况交互原型 | 方案书映射：环境感知、事故识别、语音预警、星闪协同、能源互补</p>
+  </footer>
+
+  <div id="toast" class="toast"></div>
+  <script src="./script.js"></script>
+</body>
+</html>

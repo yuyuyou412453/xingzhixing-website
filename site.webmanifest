@@ -1,0 +1,17 @@
+﻿{
+  "name": "星智行智慧路况交互中枢",
+  "short_name": "星智行",
+  "description": "智慧路况交互平台，支持实时监测、事故预警、语音交互与节点协同。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1a2f",
+  "theme_color": "#0f1a2f",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
