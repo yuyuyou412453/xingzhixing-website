@@ -100,42 +100,42 @@
         <article class="data-card primary">
           <span>温度</span>
           <strong id="tempValue">--</strong>
-          <small>AHT20</small>
+          <small>Edge Module</small>
         </article>
         <article class="data-card primary">
           <span>湿度</span>
           <strong id="humidityValue">--</strong>
-          <small>AHT20</small>
+          <small>Edge Module</small>
         </article>
         <article class="data-card">
           <span>气压</span>
           <strong id="pressureValue">--</strong>
-          <small>BMP</small>
+          <small>Edge Module</small>
         </article>
         <article class="data-card">
           <span>海拔</span>
           <strong id="altitudeValue">--</strong>
-          <small>ATGM336</small>
+          <small>Edge Module</small>
         </article>
         <article class="data-card">
           <span>雷达目标</span>
           <strong id="radarTargetValue">--</strong>
-          <small>HLK-LD2450</small>
+          <small id="radarCoordUnitValue">Edge Module</small>
+        </article>
+        <article class="data-card">
+          <span>Radar Speed</span>
+          <strong id="radarSpeedValue">--</strong>
+          <small>Edge Module</small>
         </article>
         <article class="data-card">
           <span>GPS 坐标</span>
           <strong id="gpsValue">--</strong>
-          <small>ATGM336</small>
+          <small>Edge Module</small>
         </article>
         <article class="data-card">
           <span>网络延迟</span>
           <strong id="latencyValue">--</strong>
-          <small>SLE Link</small>
-        </article>
-        <article class="data-card">
-          <span>云端告警同步</span>
-          <strong id="cloudSyncValue">--</strong>
-          <small>Cloud Sync</small>
+          <small>Edge Module</small>
         </article>
       </section>
 
@@ -159,6 +159,7 @@
     </main>
 
     <span id="sourceLabel" hidden>Mock Simulation</span>
+    <span id="cloudSyncValue" hidden></span>
     <span id="sourceHint" hidden>当前使用本地模拟数据</span>
 
     <script src="script.js"></script>

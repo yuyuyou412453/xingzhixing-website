@@ -8,9 +8,11 @@ const appState = {
       pressure: 1009.0
     },
     radar: {
-      targetCount: 2,
-      speed: 52,
-      distance: 34,
+      targetCount: 1,
+      speed: 0,
+      distance: 0.3,
+      x: 0,
+      y: 300,
       alert: false
     },
     gps: {
@@ -49,6 +51,8 @@ const refs = {
   pressureValue: document.getElementById("pressureValue"),
   altitudeValue: document.getElementById("altitudeValue"),
   radarTargetValue: document.getElementById("radarTargetValue"),
+  radarSpeedValue: document.getElementById("radarSpeedValue"),
+  radarCoordUnitValue: document.getElementById("radarCoordUnitValue"),
   gpsValue: document.getElementById("gpsValue"),
   latencyValue: document.getElementById("latencyValue"),
   cloudSyncValue: document.getElementById("cloudSyncValue"),
@@ -77,8 +81,37 @@ function formatNumber(value, digits = 1) {
   return value.toFixed(digits);
 }
 
+function toFiniteNumber(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return fallback;
+  }
+  return n;
+}
+
 function formatGps(gps) {
   return `${formatNumber(gps.lat, 4)}, ${formatNumber(gps.lon, 4)}`;
+}
+
+function formatRadarCoord(radar) {
+  const x = toFiniteNumber(radar.x, NaN);
+  const y = toFiniteNumber(radar.y, NaN);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return "--";
+  }
+  return `X:${Math.round(x)}mm Y:${Math.round(y)}mm`;
+}
+
+function renderRadarFields(radar) {
+  if (refs.radarTargetValue) {
+    refs.radarTargetValue.textContent = formatRadarCoord(radar);
+  }
+  if (refs.radarSpeedValue) {
+    refs.radarSpeedValue.textContent = `${formatNumber(radar.speed, 0)} cm/s`;
+  }
+  if (refs.radarCoordUnitValue) {
+    refs.radarCoordUnitValue.textContent = "Edge Module";
+  }
 }
 
 function isAlertActive() {
@@ -132,10 +165,10 @@ function renderStatus() {
 }
 
 function renderData() {
-  const { environment, radar, gps, network, cloud } = appState.snapshot;
+  const { environment, radar, gps, network } = appState.snapshot;
   const alertActive = isAlertActive();
   const alertSource = getAlertSource();
-  const cloudSynced = alertActive || cloud.alarmSynced;
+  const cloudSynced = alertActive || appState.snapshot.cloud.alarmSynced;
 
   refs.tempValue.textContent = `${formatNumber(environment.temperature, 1)}°C`;
   refs.humidityValue.textContent = `${formatNumber(environment.humidity, 1)}%`;
@@ -217,6 +250,7 @@ function drawTrendChart() {
 function renderSnapshot() {
   renderStatus();
   renderData();
+  renderRadarFields(appState.snapshot.radar);
   drawTrendChart();
 }
 
@@ -257,12 +291,30 @@ function normalizeSnapshot(payload) {
       humidity: Number(environment.humidity ?? previous.environment.humidity),
       pressure: Number(environment.pressure ?? previous.environment.pressure)
     },
-    radar: {
-      targetCount: Number(radar.targetCount ?? radar.targets ?? previous.radar.targetCount),
-      speed: Number(radar.speed ?? previous.radar.speed),
-      distance: Number(radar.distance ?? previous.radar.distance),
-      alert: Boolean(radar.alert ?? previous.radar.alert)
-    },
+    radar: (() => {
+      const x = toFiniteNumber(
+        radar.x ?? radar.posX ?? radar.targetX ?? radar.coordinateX ?? previous.radar.x,
+        previous.radar.x
+      );
+      const y = toFiniteNumber(
+        radar.y ?? radar.posY ?? radar.targetY ?? radar.coordinateY ?? previous.radar.y,
+        previous.radar.y
+      );
+      const speed = toFiniteNumber(radar.speed ?? radar.v ?? previous.radar.speed, previous.radar.speed);
+      const distance = toFiniteNumber(radar.distance ?? previous.radar.distance, previous.radar.distance);
+      const targetCount = toFiniteNumber(
+        radar.targetCount ?? radar.targets ?? (Number.isFinite(x) && Number.isFinite(y) ? 1 : previous.radar.targetCount),
+        previous.radar.targetCount
+      );
+      return {
+        targetCount,
+        speed,
+        distance,
+        x,
+        y,
+        alert: Boolean(radar.alert ?? previous.radar.alert)
+      };
+    })(),
     gps: {
       lat: Number(gps.lat ?? previous.gps.lat),
       lon: Number(gps.lon ?? previous.gps.lon),
@@ -328,9 +380,11 @@ class DataConnector {
           pressure: clamp(prev.environment.pressure + randomBetween(-0.9, 0.9), 990, 1030)
         },
         radar: {
-          targetCount: clamp(prev.radar.targetCount + Math.round(randomBetween(-1, 1)), 0, 6),
-          speed: clamp(prev.radar.speed + randomBetween(-6, 6), 0, 120),
-          distance: clamp(prev.radar.distance + randomBetween(-4, 4), 4, 90),
+          targetCount: 1,
+          speed: clamp(prev.radar.speed + randomBetween(-8, 8), -120, 120),
+          distance: clamp(prev.radar.distance + randomBetween(-0.08, 0.08), 0.1, 9),
+          x: clamp(prev.radar.x + randomBetween(-120, 120), -600, 600),
+          y: clamp(prev.radar.y + randomBetween(-90, 90), 100, 1500),
           alert: false
         },
         gps: {
