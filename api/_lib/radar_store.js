@@ -1,12 +1,22 @@
 "use strict";
 
 const CACHE_KEY = "__xzxRadarLatestCache";
+const SCHEMA_CAP_KEY = "__xzxRadarSchemaCaps";
 
 function getCache() {
   if (!globalThis[CACHE_KEY]) {
     globalThis[CACHE_KEY] = new Map();
   }
   return globalThis[CACHE_KEY];
+}
+
+function getSchemaCaps() {
+  if (!globalThis[SCHEMA_CAP_KEY]) {
+    globalThis[SCHEMA_CAP_KEY] = {
+      supportsRadarXY: true
+    };
+  }
+  return globalThis[SCHEMA_CAP_KEY];
 }
 
 function getSupabaseConfig() {
@@ -24,6 +34,9 @@ function hasSupabase() {
 }
 
 function toNumber(value, fallback) {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
   const n = Number(value);
   if (!Number.isFinite(n)) {
     return fallback;
@@ -57,10 +70,21 @@ function toBoolean(value, fallback) {
 function normalizeRadar(raw, fallback) {
   const safeRaw = raw && typeof raw === "object" ? raw : {};
   const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
+  const x = toNumber(
+    safeRaw.x ?? safeRaw.posX ?? safeRaw.targetX ?? safeRaw.coordinateX,
+    safeFallback.x ?? null
+  );
+  const y = toNumber(
+    safeRaw.y ?? safeRaw.posY ?? safeRaw.targetY ?? safeRaw.coordinateY,
+    safeFallback.y ?? null
+  );
+  const hasXY = Number.isFinite(x) && Number.isFinite(y);
   return {
-    targetCount: Math.max(0, toInteger(safeRaw.targetCount, safeFallback.targetCount ?? 0)),
+    targetCount: Math.max(0, toInteger(safeRaw.targetCount, safeFallback.targetCount ?? (hasXY ? 1 : 0))),
     speed: toNumber(safeRaw.speed, safeFallback.speed ?? 0),
     distance: Math.max(0, toNumber(safeRaw.distance, safeFallback.distance ?? 0)),
+    x,
+    y,
     alert: toBoolean(safeRaw.alert, safeFallback.alert ?? false)
   };
 }
@@ -90,6 +114,8 @@ function snapshotToLatestRow(snapshot) {
     radar_target_count: snapshot.radar.targetCount,
     radar_speed: snapshot.radar.speed,
     radar_distance: snapshot.radar.distance,
+    radar_x: snapshot.radar.x,
+    radar_y: snapshot.radar.y,
     radar_alert: snapshot.radar.alert
   };
 }
@@ -103,6 +129,8 @@ function latestRowToSnapshot(row) {
       targetCount: Math.max(0, toInteger(row.radar_target_count, 0)),
       speed: toNumber(row.radar_speed, 0),
       distance: Math.max(0, toNumber(row.radar_distance, 0)),
+      x: toNumber(row.radar_x, null),
+      y: toNumber(row.radar_y, null),
       alert: toBoolean(row.radar_alert, false)
     }
   };
@@ -147,23 +175,54 @@ function getMemoryLatest(deviceId) {
   return latest;
 }
 
+function isMissingRadarXYColumnError(err) {
+  const msg = String((err && err.message) || "").toLowerCase();
+  return msg.includes("radar_x") || msg.includes("radar_y");
+}
+
+function dropXYFromLatestRow(row) {
+  const { radar_x, radar_y, ...rest } = row;
+  return rest;
+}
+
 async function upsertRadarSnapshot(snapshot) {
   const cache = getCache();
+  const caps = getSchemaCaps();
   cache.set(snapshot.deviceId, snapshot);
 
   if (!hasSupabase()) {
     return { storage: "memory" };
   }
 
-  const latestRow = snapshotToLatestRow(snapshot);
-  await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
-    method: "POST",
-    headers: {
-      Prefer: "resolution=merge-duplicates,return=minimal"
-    },
-    body: JSON.stringify([latestRow]),
-    expectText: true
-  });
+  let latestRow = snapshotToLatestRow(snapshot);
+  if (!caps.supportsRadarXY) {
+    latestRow = dropXYFromLatestRow(latestRow);
+  }
+
+  try {
+    await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
+      method: "POST",
+      headers: {
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify([latestRow]),
+      expectText: true
+    });
+  } catch (err) {
+    if (!caps.supportsRadarXY || !isMissingRadarXYColumnError(err)) {
+      throw err;
+    }
+    caps.supportsRadarXY = false;
+    latestRow = dropXYFromLatestRow(snapshotToLatestRow(snapshot));
+    await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
+      method: "POST",
+      headers: {
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify([latestRow]),
+      expectText: true
+    });
+  }
 
   try {
     await supabaseRequest("/rest/v1/radar_logs", {
@@ -177,6 +236,8 @@ async function upsertRadarSnapshot(snapshot) {
           target_count: snapshot.radar.targetCount,
           speed: snapshot.radar.speed,
           distance: snapshot.radar.distance,
+          x: snapshot.radar.x,
+          y: snapshot.radar.y,
           alert: snapshot.radar.alert
         }
       ]),
@@ -194,20 +255,37 @@ async function readLatestSnapshot(deviceId) {
     return getMemoryLatest(deviceId);
   }
 
-  const params = new URLSearchParams();
-  params.set(
-    "select",
-    "device_id,updated_at,radar_target_count,radar_speed,radar_distance,radar_alert"
-  );
-  params.set("order", "updated_at.desc");
-  params.set("limit", "1");
-  if (deviceId) {
-    params.set("device_id", `eq.${deviceId}`);
-  }
+  const caps = getSchemaCaps();
+  const buildQuery = (withXY) => {
+    const params = new URLSearchParams();
+    params.set(
+      "select",
+      withXY
+        ? "device_id,updated_at,radar_target_count,radar_speed,radar_distance,radar_x,radar_y,radar_alert"
+        : "device_id,updated_at,radar_target_count,radar_speed,radar_distance,radar_alert"
+    );
+    params.set("order", "updated_at.desc");
+    params.set("limit", "1");
+    if (deviceId) {
+      params.set("device_id", `eq.${deviceId}`);
+    }
+    return params.toString();
+  };
 
-  const rows = await supabaseRequest(`/rest/v1/telemetry_latest?${params.toString()}`, {
-    method: "GET"
-  });
+  let rows;
+  try {
+    rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery(caps.supportsRadarXY)}`, {
+      method: "GET"
+    });
+  } catch (err) {
+    if (!caps.supportsRadarXY || !isMissingRadarXYColumnError(err)) {
+      throw err;
+    }
+    caps.supportsRadarXY = false;
+    rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery(false)}`, {
+      method: "GET"
+    });
+  }
 
   if (!Array.isArray(rows) || rows.length === 0) {
     return null;
@@ -224,4 +302,3 @@ module.exports = {
   readLatestSnapshot,
   upsertRadarSnapshot
 };
-
