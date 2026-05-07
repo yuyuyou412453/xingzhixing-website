@@ -32,6 +32,10 @@ const appState = {
   }
 };
 
+const DEFAULT_DEVICE_ID = "xzx-a12";
+const DEFAULT_HTTP_POLL_INTERVAL_MS = 2000;
+const DEFAULT_HTTP_ENDPOINT = `/api/latest?deviceId=${encodeURIComponent(DEFAULT_DEVICE_ID)}`;
+
 const refs = {
   systemStatus: document.getElementById("systemStatus"),
   simulateAlertBtn: document.getElementById("simulateAlertBtn"),
@@ -457,8 +461,8 @@ function bootstrap() {
   exposeBridge();
   seedHistory();
   renderSnapshot();
-  addEvent("info", "系统启动", "默认使用本地模拟数据");
-  connector.useMock();
+  addEvent("info", "系统启动", `默认使用云端轮询: ${DEFAULT_HTTP_ENDPOINT}`);
+  connector.useHttp(DEFAULT_HTTP_ENDPOINT, DEFAULT_HTTP_POLL_INTERVAL_MS);
 }
 
 bootstrap();
