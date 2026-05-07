@@ -1,22 +1,12 @@
 "use strict";
 
 const CACHE_KEY = "__xzxRadarLatestCache";
-const SCHEMA_CAP_KEY = "__xzxRadarSchemaCaps";
 
 function getCache() {
   if (!globalThis[CACHE_KEY]) {
     globalThis[CACHE_KEY] = new Map();
   }
   return globalThis[CACHE_KEY];
-}
-
-function getSchemaCaps() {
-  if (!globalThis[SCHEMA_CAP_KEY]) {
-    globalThis[SCHEMA_CAP_KEY] = {
-      supportsRadarXY: true
-    };
-  }
-  return globalThis[SCHEMA_CAP_KEY];
 }
 
 function getSupabaseConfig() {
@@ -187,7 +177,6 @@ function dropXYFromLatestRow(row) {
 
 async function upsertRadarSnapshot(snapshot) {
   const cache = getCache();
-  const caps = getSchemaCaps();
   cache.set(snapshot.deviceId, snapshot);
 
   if (!hasSupabase()) {
@@ -195,9 +184,6 @@ async function upsertRadarSnapshot(snapshot) {
   }
 
   let latestRow = snapshotToLatestRow(snapshot);
-  if (!caps.supportsRadarXY) {
-    latestRow = dropXYFromLatestRow(latestRow);
-  }
 
   try {
     await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
@@ -209,10 +195,9 @@ async function upsertRadarSnapshot(snapshot) {
       expectText: true
     });
   } catch (err) {
-    if (!caps.supportsRadarXY || !isMissingRadarXYColumnError(err)) {
+    if (!isMissingRadarXYColumnError(err)) {
       throw err;
     }
-    caps.supportsRadarXY = false;
     latestRow = dropXYFromLatestRow(snapshotToLatestRow(snapshot));
     await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
       method: "POST",
@@ -255,7 +240,6 @@ async function readLatestSnapshot(deviceId) {
     return getMemoryLatest(deviceId);
   }
 
-  const caps = getSchemaCaps();
   const buildQuery = (withXY) => {
     const params = new URLSearchParams();
     params.set(
@@ -274,14 +258,13 @@ async function readLatestSnapshot(deviceId) {
 
   let rows;
   try {
-    rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery(caps.supportsRadarXY)}`, {
+    rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery(true)}`, {
       method: "GET"
     });
   } catch (err) {
-    if (!caps.supportsRadarXY || !isMissingRadarXYColumnError(err)) {
+    if (!isMissingRadarXYColumnError(err)) {
       throw err;
     }
-    caps.supportsRadarXY = false;
     rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery(false)}`, {
       method: "GET"
     });
