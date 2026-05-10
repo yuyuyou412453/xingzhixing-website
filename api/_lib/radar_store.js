@@ -1,7 +1,6 @@
 "use strict";
 
 const CACHE_KEY = "__xzxRadarLatestCache";
-const SCHEMA_CAP_KEY = "__xzxRadarSchemaCaps";
 
 function getCache() {
   if (!globalThis[CACHE_KEY]) {
@@ -11,13 +10,11 @@ function getCache() {
 }
 
 function getSchemaCaps() {
-  if (!globalThis[SCHEMA_CAP_KEY]) {
-    globalThis[SCHEMA_CAP_KEY] = {
-      supportsRadarXY: true,
-      supportsEnvironment: true
-    };
-  }
-  return globalThis[SCHEMA_CAP_KEY];
+  /* 不持久缓存 schema 能力，避免“已加列但进程仍沿用旧能力”导致环境字段长期被丢弃 */
+  return {
+    supportsRadarXY: true,
+    supportsEnvironment: true
+  };
 }
 
 function getSupabaseConfig() {
@@ -406,4 +403,3 @@ module.exports = {
   readLatestSnapshot,
   upsertRadarSnapshot
 };
-
