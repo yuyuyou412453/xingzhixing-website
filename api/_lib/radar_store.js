@@ -1,12 +1,23 @@
 "use strict";
 
 const CACHE_KEY = "__xzxRadarLatestCache";
+const SCHEMA_CAP_KEY = "__xzxRadarSchemaCaps";
 
 function getCache() {
   if (!globalThis[CACHE_KEY]) {
     globalThis[CACHE_KEY] = new Map();
   }
   return globalThis[CACHE_KEY];
+}
+
+function getSchemaCaps() {
+  if (!globalThis[SCHEMA_CAP_KEY]) {
+    globalThis[SCHEMA_CAP_KEY] = {
+      supportsRadarXY: true,
+      supportsEnvironment: true
+    };
+  }
+  return globalThis[SCHEMA_CAP_KEY];
 }
 
 function getSupabaseConfig() {
@@ -79,6 +90,45 @@ function normalizeRadar(raw, fallback) {
   };
 }
 
+function normalizeEnvironment(raw, fallback) {
+  const safeRaw = raw && typeof raw === "object" ? raw : {};
+  const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
+
+  const temperature = toNumber(
+    safeRaw.temperature ??
+      safeRaw.temp ??
+      safeRaw.temperature_c ??
+      safeRaw.temperatureC ??
+      (safeRaw.temperature_x10 !== undefined ? Number(safeRaw.temperature_x10) / 10 : undefined),
+    safeFallback.temperature ?? null
+  );
+  const humidity = toNumber(
+    safeRaw.humidity ??
+      safeRaw.humi ??
+      (safeRaw.humidity_x10 !== undefined ? Number(safeRaw.humidity_x10) / 10 : undefined),
+    safeFallback.humidity ?? null
+  );
+  const pressure = toNumber(
+    safeRaw.pressure ??
+      safeRaw.pressure_hpa ??
+      (safeRaw.pressure_x10 !== undefined ? Number(safeRaw.pressure_x10) / 10 : undefined),
+    safeFallback.pressure ?? null
+  );
+  const altitude = toNumber(
+    safeRaw.altitude ??
+      safeRaw.alt ??
+      (safeRaw.altitude_x10 !== undefined ? Number(safeRaw.altitude_x10) / 10 : undefined),
+    safeFallback.altitude ?? null
+  );
+
+  return {
+    temperature,
+    humidity,
+    pressure,
+    altitude
+  };
+}
+
 function normalizeSnapshot(payload) {
   const data = payload && typeof payload === "object" ? payload : {};
   const deviceIdRaw = typeof data.deviceId === "string" ? data.deviceId.trim() : "";
@@ -90,10 +140,14 @@ function normalizeSnapshot(payload) {
     ? Number(data.timestamp)
     : Date.now();
 
+  const cache = getCache();
+  const previous = cache.get(deviceIdRaw) || null;
+
   return {
     deviceId: deviceIdRaw,
     timestamp,
-    radar: normalizeRadar(data.radar, null)
+    radar: normalizeRadar(data.radar, previous ? previous.radar : null),
+    environment: normalizeEnvironment(data.environment, previous ? previous.environment : null)
   };
 }
 
@@ -106,7 +160,11 @@ function snapshotToLatestRow(snapshot) {
     radar_distance: snapshot.radar.distance,
     radar_x: snapshot.radar.x,
     radar_y: snapshot.radar.y,
-    radar_alert: snapshot.radar.alert
+    radar_alert: snapshot.radar.alert,
+    env_temperature: snapshot.environment.temperature,
+    env_humidity: snapshot.environment.humidity,
+    env_pressure: snapshot.environment.pressure,
+    env_altitude: snapshot.environment.altitude
   };
 }
 
@@ -122,6 +180,12 @@ function latestRowToSnapshot(row) {
       x: toNumber(row.radar_x, null),
       y: toNumber(row.radar_y, null),
       alert: toBoolean(row.radar_alert, false)
+    },
+    environment: {
+      temperature: toNumber(row.env_temperature, null),
+      humidity: toNumber(row.env_humidity, null),
+      pressure: toNumber(row.env_pressure, null),
+      altitude: toNumber(row.env_altitude, null)
     }
   };
 }
@@ -170,13 +234,27 @@ function isMissingRadarXYColumnError(err) {
   return msg.includes("radar_x") || msg.includes("radar_y");
 }
 
+function isMissingEnvironmentColumnError(err) {
+  const msg = String((err && err.message) || "").toLowerCase();
+  return msg.includes("env_temperature") ||
+    msg.includes("env_humidity") ||
+    msg.includes("env_pressure") ||
+    msg.includes("env_altitude");
+}
+
 function dropXYFromLatestRow(row) {
   const { radar_x, radar_y, ...rest } = row;
   return rest;
 }
 
+function dropEnvironmentFromLatestRow(row) {
+  const { env_temperature, env_humidity, env_pressure, env_altitude, ...rest } = row;
+  return rest;
+}
+
 async function upsertRadarSnapshot(snapshot) {
   const cache = getCache();
+  const caps = getSchemaCaps();
   cache.set(snapshot.deviceId, snapshot);
 
   if (!hasSupabase()) {
@@ -184,6 +262,12 @@ async function upsertRadarSnapshot(snapshot) {
   }
 
   let latestRow = snapshotToLatestRow(snapshot);
+  if (!caps.supportsRadarXY) {
+    latestRow = dropXYFromLatestRow(latestRow);
+  }
+  if (!caps.supportsEnvironment) {
+    latestRow = dropEnvironmentFromLatestRow(latestRow);
+  }
 
   try {
     await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
@@ -195,10 +279,24 @@ async function upsertRadarSnapshot(snapshot) {
       expectText: true
     });
   } catch (err) {
-    if (!isMissingRadarXYColumnError(err)) {
+    const missingXY = caps.supportsRadarXY && isMissingRadarXYColumnError(err);
+    const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
+    if (!missingXY && !missingEnv) {
       throw err;
     }
-    latestRow = dropXYFromLatestRow(snapshotToLatestRow(snapshot));
+    if (missingXY) {
+      caps.supportsRadarXY = false;
+    }
+    if (missingEnv) {
+      caps.supportsEnvironment = false;
+    }
+    latestRow = snapshotToLatestRow(snapshot);
+    if (!caps.supportsRadarXY) {
+      latestRow = dropXYFromLatestRow(latestRow);
+    }
+    if (!caps.supportsEnvironment) {
+      latestRow = dropEnvironmentFromLatestRow(latestRow);
+    }
     await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
       method: "POST",
       headers: {
@@ -229,10 +327,13 @@ async function upsertRadarSnapshot(snapshot) {
       expectText: true
     });
   } catch (err) {
-    /* radar_logs 是可选表，缺失时不影响主流程 */
+    /* optional logs table */
   }
 
-  return { storage: "supabase" };
+  return {
+    storage: "supabase",
+    supportsEnvironment: caps.supportsEnvironment
+  };
 }
 
 async function readLatestSnapshot(deviceId) {
@@ -240,14 +341,26 @@ async function readLatestSnapshot(deviceId) {
     return getMemoryLatest(deviceId);
   }
 
-  const buildQuery = (withXY) => {
+  const caps = getSchemaCaps();
+
+  const buildQuery = () => {
+    const selectParts = [
+      "device_id",
+      "updated_at",
+      "radar_target_count",
+      "radar_speed",
+      "radar_distance",
+      "radar_alert"
+    ];
+    if (caps.supportsRadarXY) {
+      selectParts.push("radar_x", "radar_y");
+    }
+    if (caps.supportsEnvironment) {
+      selectParts.push("env_temperature", "env_humidity", "env_pressure", "env_altitude");
+    }
+
     const params = new URLSearchParams();
-    params.set(
-      "select",
-      withXY
-        ? "device_id,updated_at,radar_target_count,radar_speed,radar_distance,radar_x,radar_y,radar_alert"
-        : "device_id,updated_at,radar_target_count,radar_speed,radar_distance,radar_alert"
-    );
+    params.set("select", selectParts.join(","));
     params.set("order", "updated_at.desc");
     params.set("limit", "1");
     if (deviceId) {
@@ -258,14 +371,22 @@ async function readLatestSnapshot(deviceId) {
 
   let rows;
   try {
-    rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery(true)}`, {
+    rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery()}`, {
       method: "GET"
     });
   } catch (err) {
-    if (!isMissingRadarXYColumnError(err)) {
+    const missingXY = caps.supportsRadarXY && isMissingRadarXYColumnError(err);
+    const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
+    if (!missingXY && !missingEnv) {
       throw err;
     }
-    rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery(false)}`, {
+    if (missingXY) {
+      caps.supportsRadarXY = false;
+    }
+    if (missingEnv) {
+      caps.supportsEnvironment = false;
+    }
+    rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery()}`, {
       method: "GET"
     });
   }
@@ -285,3 +406,4 @@ module.exports = {
   readLatestSnapshot,
   upsertRadarSnapshot
 };
+
