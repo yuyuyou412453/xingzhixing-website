@@ -13,7 +13,8 @@ function getSchemaCaps() {
   /* 不持久缓存 schema 能力，避免“已加列但进程仍沿用旧能力”导致环境字段长期被丢弃 */
   return {
     supportsRadarXY: true,
-    supportsEnvironment: true
+    supportsEnvironment: true,
+    supportsNetwork: true
   };
 }
 
@@ -126,6 +127,27 @@ function normalizeEnvironment(raw, fallback) {
   };
 }
 
+function normalizeNetwork(raw, fallback) {
+  const safeRaw = raw && typeof raw === "object" ? raw : {};
+  const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
+
+  return {
+    latency: toNumber(
+      safeRaw.latency ??
+        safeRaw.delay ??
+        safeRaw.rtt ??
+        safeRaw.ping,
+      safeFallback.latency ?? null
+    ),
+    link: String(
+      safeRaw.link ??
+        safeRaw.status ??
+        safeFallback.link ??
+        "unknown"
+    )
+  };
+}
+
 function normalizeSnapshot(payload) {
   const data = payload && typeof payload === "object" ? payload : {};
   const deviceIdRaw = typeof data.deviceId === "string" ? data.deviceId.trim() : "";
@@ -144,7 +166,8 @@ function normalizeSnapshot(payload) {
     deviceId: deviceIdRaw,
     timestamp,
     radar: normalizeRadar(data.radar, previous ? previous.radar : null),
-    environment: normalizeEnvironment(data.environment, previous ? previous.environment : null)
+    environment: normalizeEnvironment(data.environment, previous ? previous.environment : null),
+    network: normalizeNetwork(data.network, previous ? previous.network : null)
   };
 }
 
@@ -161,7 +184,9 @@ function snapshotToLatestRow(snapshot) {
     env_temperature: snapshot.environment.temperature,
     env_humidity: snapshot.environment.humidity,
     env_pressure: snapshot.environment.pressure,
-    env_altitude: snapshot.environment.altitude
+    env_altitude: snapshot.environment.altitude,
+    net_latency: snapshot.network.latency,
+    net_link: snapshot.network.link
   };
 }
 
@@ -183,6 +208,10 @@ function latestRowToSnapshot(row) {
       humidity: toNumber(row.env_humidity, null),
       pressure: toNumber(row.env_pressure, null),
       altitude: toNumber(row.env_altitude, null)
+    },
+    network: {
+      latency: toNumber(row.net_latency, null),
+      link: String(row.net_link ?? "unknown")
     }
   };
 }
@@ -239,6 +268,11 @@ function isMissingEnvironmentColumnError(err) {
     msg.includes("env_altitude");
 }
 
+function isMissingNetworkColumnError(err) {
+  const msg = String((err && err.message) || "").toLowerCase();
+  return msg.includes("net_latency") || msg.includes("net_link");
+}
+
 function dropXYFromLatestRow(row) {
   const { radar_x, radar_y, ...rest } = row;
   return rest;
@@ -246,6 +280,11 @@ function dropXYFromLatestRow(row) {
 
 function dropEnvironmentFromLatestRow(row) {
   const { env_temperature, env_humidity, env_pressure, env_altitude, ...rest } = row;
+  return rest;
+}
+
+function dropNetworkFromLatestRow(row) {
+  const { net_latency, net_link, ...rest } = row;
   return rest;
 }
 
@@ -265,6 +304,9 @@ async function upsertRadarSnapshot(snapshot) {
   if (!caps.supportsEnvironment) {
     latestRow = dropEnvironmentFromLatestRow(latestRow);
   }
+  if (!caps.supportsNetwork) {
+    latestRow = dropNetworkFromLatestRow(latestRow);
+  }
 
   try {
     await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
@@ -278,7 +320,8 @@ async function upsertRadarSnapshot(snapshot) {
   } catch (err) {
     const missingXY = caps.supportsRadarXY && isMissingRadarXYColumnError(err);
     const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
-    if (!missingXY && !missingEnv) {
+    const missingNet = caps.supportsNetwork && isMissingNetworkColumnError(err);
+    if (!missingXY && !missingEnv && !missingNet) {
       throw err;
     }
     if (missingXY) {
@@ -287,12 +330,18 @@ async function upsertRadarSnapshot(snapshot) {
     if (missingEnv) {
       caps.supportsEnvironment = false;
     }
+    if (missingNet) {
+      caps.supportsNetwork = false;
+    }
     latestRow = snapshotToLatestRow(snapshot);
     if (!caps.supportsRadarXY) {
       latestRow = dropXYFromLatestRow(latestRow);
     }
     if (!caps.supportsEnvironment) {
       latestRow = dropEnvironmentFromLatestRow(latestRow);
+    }
+    if (!caps.supportsNetwork) {
+      latestRow = dropNetworkFromLatestRow(latestRow);
     }
     await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
       method: "POST",
@@ -329,7 +378,8 @@ async function upsertRadarSnapshot(snapshot) {
 
   return {
     storage: "supabase",
-    supportsEnvironment: caps.supportsEnvironment
+    supportsEnvironment: caps.supportsEnvironment,
+    supportsNetwork: caps.supportsNetwork
   };
 }
 
@@ -355,6 +405,9 @@ async function readLatestSnapshot(deviceId) {
     if (caps.supportsEnvironment) {
       selectParts.push("env_temperature", "env_humidity", "env_pressure", "env_altitude");
     }
+    if (caps.supportsNetwork) {
+      selectParts.push("net_latency", "net_link");
+    }
 
     const params = new URLSearchParams();
     params.set("select", selectParts.join(","));
@@ -374,7 +427,8 @@ async function readLatestSnapshot(deviceId) {
   } catch (err) {
     const missingXY = caps.supportsRadarXY && isMissingRadarXYColumnError(err);
     const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
-    if (!missingXY && !missingEnv) {
+    const missingNet = caps.supportsNetwork && isMissingNetworkColumnError(err);
+    if (!missingXY && !missingEnv && !missingNet) {
       throw err;
     }
     if (missingXY) {
@@ -382,6 +436,9 @@ async function readLatestSnapshot(deviceId) {
     }
     if (missingEnv) {
       caps.supportsEnvironment = false;
+    }
+    if (missingNet) {
+      caps.supportsNetwork = false;
     }
     rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery()}`, {
       method: "GET"

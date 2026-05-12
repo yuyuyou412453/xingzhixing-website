@@ -50,6 +50,10 @@ module.exports = async function handler(req, res) {
       timestamp: snapshot.timestamp,
       radar: snapshot.radar,
       environment: snapshot.environment || null,
+      network: snapshot.network || {
+        latency: null,
+        link: "unknown"
+      },
       gps: {
         alt: snapshot.environment && Number.isFinite(Number(snapshot.environment.altitude))
           ? Number(snapshot.environment.altitude)
