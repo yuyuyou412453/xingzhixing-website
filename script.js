@@ -62,6 +62,13 @@ const refs = {
   eventList: document.getElementById("eventList")
 };
 
+if (refs.latencyValue && refs.latencyValue.previousElementSibling) {
+  refs.latencyValue.previousElementSibling.textContent = "SLE网页延迟";
+}
+if (refs.latencyValue && refs.latencyValue.nextElementSibling) {
+  refs.latencyValue.nextElementSibling.textContent = "SLE Link";
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -320,10 +327,16 @@ function normalizeSnapshot(payload) {
       lon: Number(gps.lon ?? previous.gps.lon),
       alt: Number(gps.alt ?? previous.gps.alt)
     },
-    network: {
-      latency: Number(network.latency ?? previous.network.latency),
-      link: String(network.link ?? previous.network.link)
-    },
+    network: (() => {
+      const latencyRaw = toFiniteNumber(
+        network.latency ?? network.sleLatency ?? previous.network.latency,
+        previous.network.latency
+      );
+      return {
+        latency: clamp(latencyRaw, 0, 999),
+        link: String(network.link ?? network.sleLink ?? previous.network.link)
+      };
+    })(),
     cloud: {
       alarmSynced: Boolean(cloud.alarmSynced ?? previous.cloud.alarmSynced)
     }
