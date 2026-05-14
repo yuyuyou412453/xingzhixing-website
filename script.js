@@ -63,7 +63,7 @@ const refs = {
 };
 
 if (refs.latencyValue && refs.latencyValue.previousElementSibling) {
-  refs.latencyValue.previousElementSibling.textContent = "SLE网页延迟";
+  refs.latencyValue.previousElementSibling.textContent = "SLE网络延迟";
 }
 if (refs.latencyValue && refs.latencyValue.nextElementSibling) {
   refs.latencyValue.nextElementSibling.textContent = "SLE Link";
