@@ -148,6 +148,27 @@ function normalizeNetwork(raw, fallback) {
   };
 }
 
+function normalizeTimestamp(rawTimestamp) {
+  const now = Date.now();
+  const ts = Number(rawTimestamp);
+
+  if (!Number.isFinite(ts)) {
+    return now;
+  }
+
+  /* 主板上报常见为开机毫秒(jiffies)，会落在 1970 年，这里自动改为服务器当前时间 */
+  if (ts < 1577836800000) { /* 2020-01-01T00:00:00.000Z */
+    return now;
+  }
+
+  /* 防止异常未来时间污染排序 */
+  if (ts > now + 24 * 60 * 60 * 1000) {
+    return now;
+  }
+
+  return ts;
+}
+
 function normalizeSnapshot(payload) {
   const data = payload && typeof payload === "object" ? payload : {};
   const deviceIdRaw = typeof data.deviceId === "string" ? data.deviceId.trim() : "";
@@ -155,9 +176,7 @@ function normalizeSnapshot(payload) {
     throw new Error("deviceId is required");
   }
 
-  const timestamp = Number.isFinite(Number(data.timestamp))
-    ? Number(data.timestamp)
-    : Date.now();
+  const timestamp = normalizeTimestamp(data.timestamp);
 
   const cache = getCache();
   const previous = cache.get(deviceIdRaw) || null;
