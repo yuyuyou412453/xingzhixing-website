@@ -8,11 +8,9 @@ const appState = {
       pressure: 1009.0
     },
     radar: {
-      targetCount: 1,
-      speed: 0,
-      distance: 0.3,
-      x: 0,
-      y: 300,
+      targetCount: 2,
+      speed: 52,
+      distance: 34,
       alert: false
     },
     gps: {
@@ -34,9 +32,8 @@ const appState = {
   }
 };
 
-const DEFAULT_DEVICE_ID = "xzx-a12";
-const DEFAULT_HTTP_POLL_INTERVAL_MS = 2000;
-const DEFAULT_HTTP_ENDPOINT = `/api/latest?deviceId=${encodeURIComponent(DEFAULT_DEVICE_ID)}`;
+const DEFAULT_DEVICE_ID = new URLSearchParams(window.location.search).get("deviceId") || "xzx-a12";
+const CLOUD_POLL_INTERVAL_MS = 2000;
 
 const refs = {
   systemStatus: document.getElementById("systemStatus"),
@@ -51,8 +48,6 @@ const refs = {
   pressureValue: document.getElementById("pressureValue"),
   altitudeValue: document.getElementById("altitudeValue"),
   radarTargetValue: document.getElementById("radarTargetValue"),
-  radarSpeedValue: document.getElementById("radarSpeedValue"),
-  radarCoordUnitValue: document.getElementById("radarCoordUnitValue"),
   gpsValue: document.getElementById("gpsValue"),
   latencyValue: document.getElementById("latencyValue"),
   cloudSyncValue: document.getElementById("cloudSyncValue"),
@@ -61,13 +56,6 @@ const refs = {
   sourceHint: document.getElementById("sourceHint"),
   eventList: document.getElementById("eventList")
 };
-
-if (refs.latencyValue && refs.latencyValue.previousElementSibling) {
-  refs.latencyValue.previousElementSibling.textContent = "SLE网络延迟";
-}
-if (refs.latencyValue && refs.latencyValue.nextElementSibling) {
-  refs.latencyValue.nextElementSibling.textContent = "SLE Link";
-}
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -81,6 +69,10 @@ function nowClock() {
   return new Date().toLocaleTimeString("zh-CN", { hour12: false });
 }
 
+function cloudUrlByDevice(deviceId) {
+  return `/api/latest?deviceId=${encodeURIComponent(deviceId || DEFAULT_DEVICE_ID)}`;
+}
+
 function formatNumber(value, digits = 1) {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return "--";
@@ -88,37 +80,8 @@ function formatNumber(value, digits = 1) {
   return value.toFixed(digits);
 }
 
-function toFiniteNumber(value, fallback) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) {
-    return fallback;
-  }
-  return n;
-}
-
 function formatGps(gps) {
   return `${formatNumber(gps.lat, 4)}, ${formatNumber(gps.lon, 4)}`;
-}
-
-function formatRadarCoord(radar) {
-  const x = toFiniteNumber(radar.x, NaN);
-  const y = toFiniteNumber(radar.y, NaN);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    return "--";
-  }
-  return `X:${Math.round(x)}mm Y:${Math.round(y)}mm`;
-}
-
-function renderRadarFields(radar) {
-  if (refs.radarTargetValue) {
-    refs.radarTargetValue.textContent = formatRadarCoord(radar);
-  }
-  if (refs.radarSpeedValue) {
-    refs.radarSpeedValue.textContent = `${formatNumber(radar.speed, 0)} cm/s`;
-  }
-  if (refs.radarCoordUnitValue) {
-    refs.radarCoordUnitValue.textContent = "Edge Module";
-  }
 }
 
 function isAlertActive() {
@@ -172,10 +135,10 @@ function renderStatus() {
 }
 
 function renderData() {
-  const { environment, radar, gps, network } = appState.snapshot;
+  const { environment, radar, gps, network, cloud } = appState.snapshot;
   const alertActive = isAlertActive();
   const alertSource = getAlertSource();
-  const cloudSynced = alertActive || appState.snapshot.cloud.alarmSynced;
+  const cloudSynced = alertActive || cloud.alarmSynced;
 
   refs.tempValue.textContent = `${formatNumber(environment.temperature, 1)}°C`;
   refs.humidityValue.textContent = `${formatNumber(environment.humidity, 1)}%`;
@@ -257,7 +220,6 @@ function drawTrendChart() {
 function renderSnapshot() {
   renderStatus();
   renderData();
-  renderRadarFields(appState.snapshot.radar);
   drawTrendChart();
 }
 
@@ -298,45 +260,21 @@ function normalizeSnapshot(payload) {
       humidity: Number(environment.humidity ?? previous.environment.humidity),
       pressure: Number(environment.pressure ?? previous.environment.pressure)
     },
-    radar: (() => {
-      const x = toFiniteNumber(
-        radar.x ?? radar.posX ?? radar.targetX ?? radar.coordinateX ?? previous.radar.x,
-        previous.radar.x
-      );
-      const y = toFiniteNumber(
-        radar.y ?? radar.posY ?? radar.targetY ?? radar.coordinateY ?? previous.radar.y,
-        previous.radar.y
-      );
-      const speed = toFiniteNumber(radar.speed ?? radar.v ?? previous.radar.speed, previous.radar.speed);
-      const distance = toFiniteNumber(radar.distance ?? previous.radar.distance, previous.radar.distance);
-      const targetCount = toFiniteNumber(
-        radar.targetCount ?? radar.targets ?? (Number.isFinite(x) && Number.isFinite(y) ? 1 : previous.radar.targetCount),
-        previous.radar.targetCount
-      );
-      return {
-        targetCount,
-        speed,
-        distance,
-        x,
-        y,
-        alert: Boolean(radar.alert ?? previous.radar.alert)
-      };
-    })(),
+    radar: {
+      targetCount: Number(radar.targetCount ?? radar.targets ?? previous.radar.targetCount),
+      speed: Number(radar.speed ?? previous.radar.speed),
+      distance: Number(radar.distance ?? previous.radar.distance),
+      alert: Boolean(radar.alert ?? previous.radar.alert)
+    },
     gps: {
       lat: Number(gps.lat ?? previous.gps.lat),
       lon: Number(gps.lon ?? previous.gps.lon),
       alt: Number(gps.alt ?? previous.gps.alt)
     },
-    network: (() => {
-      const latencyRaw = toFiniteNumber(
-        network.latency ?? network.sleLatency ?? previous.network.latency,
-        previous.network.latency
-      );
-      return {
-        latency: clamp(latencyRaw, 0, 999),
-        link: String(network.link ?? network.sleLink ?? previous.network.link)
-      };
-    })(),
+    network: {
+      latency: Number(network.latency ?? previous.network.latency),
+      link: String(network.link ?? previous.network.link)
+    },
     cloud: {
       alarmSynced: Boolean(cloud.alarmSynced ?? previous.cloud.alarmSynced)
     }
@@ -393,11 +331,9 @@ class DataConnector {
           pressure: clamp(prev.environment.pressure + randomBetween(-0.9, 0.9), 990, 1030)
         },
         radar: {
-          targetCount: 1,
-          speed: clamp(prev.radar.speed + randomBetween(-8, 8), -120, 120),
-          distance: clamp(prev.radar.distance + randomBetween(-0.08, 0.08), 0.1, 9),
-          x: clamp(prev.radar.x + randomBetween(-120, 120), -600, 600),
-          y: clamp(prev.radar.y + randomBetween(-90, 90), 100, 1500),
+          targetCount: clamp(prev.radar.targetCount + Math.round(randomBetween(-1, 1)), 0, 6),
+          speed: clamp(prev.radar.speed + randomBetween(-6, 6), 0, 120),
+          distance: clamp(prev.radar.distance + randomBetween(-4, 4), 4, 90),
           alert: false
         },
         gps: {
@@ -452,9 +388,15 @@ class DataConnector {
     });
   }
 
-  useHttp(url, intervalMs = 3000) {
+  useHttp(url, intervalMs = 3000, options = {}) {
     this.stopActive();
-    this.setSource("HTTP Polling", `轮询周期：${intervalMs}ms`);
+    const safeIntervalMs = clamp(Number(intervalMs) || 3000, 1000, 60000);
+    const fallbackToMock = Boolean(options.fallbackToMock);
+    const maxFailures = Math.max(1, Number(options.maxFailures || 4));
+    let failureCount = 0;
+
+    this.setSource("Cloud Sync", `轮询周期：${safeIntervalMs}ms`);
+
     const fetchOnce = async () => {
       this.pollAbort = new AbortController();
       try {
@@ -462,15 +404,28 @@ class DataConnector {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        this.push(await response.json(), "http");
+        const payload = await response.json();
+        const accepted = this.push(payload, "http");
+        if (!accepted) {
+          throw new Error("云端数据格式不合法");
+        }
+        failureCount = 0;
       } catch (error) {
-        addEvent("warn", "HTTP 轮询异常", error.message);
+        failureCount += 1;
+        if (failureCount === 1 || failureCount % 3 === 0) {
+          addEvent("warn", "云端轮询异常", `${error.message} (连续失败 ${failureCount} 次)`);
+        }
+        if (fallbackToMock && failureCount >= maxFailures) {
+          addEvent("warn", "已切回本地模拟", "云端接口连续失败");
+          this.useMock();
+          return;
+        }
       } finally {
         this.pollAbort = null;
       }
     };
     fetchOnce();
-    this.timer = setInterval(fetchOnce, clamp(intervalMs, 1000, 60000));
+    this.timer = setInterval(fetchOnce, safeIntervalMs);
   }
 }
 
@@ -517,6 +472,12 @@ function exposeBridge() {
     useHttp(url, intervalMs = 3000) {
       connector.useHttp(url, intervalMs);
     },
+    useCloud(deviceId = DEFAULT_DEVICE_ID, intervalMs = CLOUD_POLL_INTERVAL_MS) {
+      connector.useHttp(cloudUrlByDevice(deviceId), intervalMs, {
+        fallbackToMock: true,
+        maxFailures: 4
+      });
+    },
     useMock(intervalMs = 2000) {
       connector.useMock(intervalMs);
     }
@@ -528,8 +489,11 @@ function bootstrap() {
   exposeBridge();
   seedHistory();
   renderSnapshot();
-  addEvent("info", "系统启动", `默认使用云端轮询: ${DEFAULT_HTTP_ENDPOINT}`);
-  connector.useHttp(DEFAULT_HTTP_ENDPOINT, DEFAULT_HTTP_POLL_INTERVAL_MS);
+  addEvent("info", "系统启动", `优先连接云端数据（device=${DEFAULT_DEVICE_ID}）`);
+  connector.useHttp(cloudUrlByDevice(DEFAULT_DEVICE_ID), CLOUD_POLL_INTERVAL_MS, {
+    fallbackToMock: true,
+    maxFailures: 4
+  });
 }
 
 bootstrap();
