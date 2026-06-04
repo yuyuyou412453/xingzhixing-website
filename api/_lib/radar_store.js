@@ -66,8 +66,20 @@ function toBoolean(value, fallback) {
   return fallback;
 }
 
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function hasAnyOwn(obj, keys) {
+  return keys.some((key) => hasOwn(obj, key));
+}
+
 function normalizeRadar(raw, fallback) {
-  const safeRaw = raw && typeof raw === "object" ? raw : {};
+  const safeRaw = isObject(raw) ? raw : {};
   const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
   const x = toNumber(
     safeRaw.x ?? safeRaw.posX ?? safeRaw.targetX ?? safeRaw.coordinateX,
@@ -89,7 +101,7 @@ function normalizeRadar(raw, fallback) {
 }
 
 function normalizeEnvironment(raw, fallback) {
-  const safeRaw = raw && typeof raw === "object" ? raw : {};
+  const safeRaw = isObject(raw) ? raw : {};
   const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
 
   const temperature = toNumber(
@@ -128,7 +140,7 @@ function normalizeEnvironment(raw, fallback) {
 }
 
 function normalizeNetwork(raw, fallback) {
-  const safeRaw = raw && typeof raw === "object" ? raw : {};
+  const safeRaw = isObject(raw) ? raw : {};
   const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
 
   return {
@@ -145,6 +157,37 @@ function normalizeNetwork(raw, fallback) {
         safeFallback.link ??
         "unknown"
     )
+  };
+}
+
+function getPresence(payload) {
+  const data = payload && typeof payload === "object" ? payload : {};
+  const radar = isObject(data.radar) ? data.radar : {};
+  const environment = isObject(data.environment) ? data.environment : {};
+  const network = isObject(data.network) ? data.network : {};
+
+  return {
+    radar: {
+      any: isObject(data.radar),
+      targetCount: hasOwn(radar, "targetCount"),
+      speed: hasOwn(radar, "speed"),
+      distance: hasOwn(radar, "distance"),
+      x: hasAnyOwn(radar, ["x", "posX", "targetX", "coordinateX"]),
+      y: hasAnyOwn(radar, ["y", "posY", "targetY", "coordinateY"]),
+      alert: hasOwn(radar, "alert")
+    },
+    environment: {
+      any: isObject(data.environment),
+      temperature: hasAnyOwn(environment, ["temperature", "temp", "temperature_c", "temperatureC", "temperature_x10"]),
+      humidity: hasAnyOwn(environment, ["humidity", "humi", "humidity_x10"]),
+      pressure: hasAnyOwn(environment, ["pressure", "pressure_hpa", "pressure_x10"]),
+      altitude: hasAnyOwn(environment, ["altitude", "alt", "altitude_x10"])
+    },
+    network: {
+      any: isObject(data.network),
+      latency: hasAnyOwn(network, ["latency", "delay", "rtt", "ping"]),
+      link: hasAnyOwn(network, ["link", "status"])
+    }
   };
 }
 
@@ -184,6 +227,7 @@ function normalizeSnapshot(payload) {
   return {
     deviceId: deviceIdRaw,
     timestamp,
+    _present: getPresence(data),
     radar: normalizeRadar(data.radar, previous ? previous.radar : null),
     environment: normalizeEnvironment(data.environment, previous ? previous.environment : null),
     network: normalizeNetwork(data.network, previous ? previous.network : null)
@@ -191,22 +235,54 @@ function normalizeSnapshot(payload) {
 }
 
 function snapshotToLatestRow(snapshot) {
-  return {
-    device_id: snapshot.deviceId,
-    updated_at: new Date(snapshot.timestamp).toISOString(),
-    radar_target_count: snapshot.radar.targetCount,
-    radar_speed: snapshot.radar.speed,
-    radar_distance: snapshot.radar.distance,
-    radar_x: snapshot.radar.x,
-    radar_y: snapshot.radar.y,
-    radar_alert: snapshot.radar.alert,
-    env_temperature: snapshot.environment.temperature,
-    env_humidity: snapshot.environment.humidity,
-    env_pressure: snapshot.environment.pressure,
-    env_altitude: snapshot.environment.altitude,
-    net_latency: snapshot.network.latency,
-    net_link: snapshot.network.link
+  const present = snapshot._present || {
+    radar: { targetCount: true, speed: true, distance: true, x: true, y: true, alert: true },
+    environment: { temperature: true, humidity: true, pressure: true, altitude: true },
+    network: { latency: true, link: true }
   };
+  const row = {
+    device_id: snapshot.deviceId,
+    updated_at: new Date(snapshot.timestamp).toISOString()
+  };
+
+  if (present.radar.targetCount) {
+    row.radar_target_count = snapshot.radar.targetCount;
+  }
+  if (present.radar.speed) {
+    row.radar_speed = snapshot.radar.speed;
+  }
+  if (present.radar.distance) {
+    row.radar_distance = snapshot.radar.distance;
+  }
+  if (present.radar.x) {
+    row.radar_x = snapshot.radar.x;
+  }
+  if (present.radar.y) {
+    row.radar_y = snapshot.radar.y;
+  }
+  if (present.radar.alert) {
+    row.radar_alert = snapshot.radar.alert;
+  }
+  if (present.environment.temperature) {
+    row.env_temperature = snapshot.environment.temperature;
+  }
+  if (present.environment.humidity) {
+    row.env_humidity = snapshot.environment.humidity;
+  }
+  if (present.environment.pressure) {
+    row.env_pressure = snapshot.environment.pressure;
+  }
+  if (present.environment.altitude) {
+    row.env_altitude = snapshot.environment.altitude;
+  }
+  if (present.network.latency) {
+    row.net_latency = snapshot.network.latency;
+  }
+  if (present.network.link) {
+    row.net_link = snapshot.network.link;
+  }
+
+  return row;
 }
 
 function latestRowToSnapshot(row) {
@@ -370,6 +446,14 @@ async function upsertRadarSnapshot(snapshot) {
       body: JSON.stringify([latestRow]),
       expectText: true
     });
+  }
+
+  if (snapshot._present && !snapshot._present.radar.any) {
+    return {
+      storage: "supabase",
+      supportsEnvironment: caps.supportsEnvironment,
+      supportsNetwork: caps.supportsNetwork
+    };
   }
 
   try {
