@@ -14,7 +14,8 @@ function getSchemaCaps() {
   return {
     supportsRadarXY: true,
     supportsEnvironment: true,
-    supportsNetwork: true
+    supportsNetwork: true,
+    supportsCamera: true
   };
 }
 
@@ -160,11 +161,58 @@ function normalizeNetwork(raw, fallback) {
   };
 }
 
+function getCameraRaw(data) {
+  if (isObject(data.camera)) {
+    return data.camera;
+  }
+  if (isObject(data.traffic)) {
+    return data.traffic;
+  }
+  return {};
+}
+
+function normalizeCameraStatus(rawStatus, alert) {
+  const value = String(rawStatus || "").trim().toLowerCase();
+  if (value === "0x02" || value === "2" || value === "accident" || value === "crash" || value === "alert" || value === "warning") {
+    return "accident";
+  }
+  if (value === "0x01" || value === "1" || value === "normal" || value === "safe" || value === "ok" || value === "clear") {
+    return "normal";
+  }
+  return alert ? "accident" : "normal";
+}
+
+function normalizeCamera(raw, fallback) {
+  const safeRaw = isObject(raw) ? raw : {};
+  const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
+  const rawAlert = safeRaw.alert ?? safeRaw.accident ?? safeRaw.crash ?? safeRaw.warning;
+  const alert = toBoolean(rawAlert, safeFallback.alert ?? false);
+  const status = normalizeCameraStatus(
+    safeRaw.status ?? safeRaw.state ?? safeRaw.code ?? safeRaw.statusCode ?? safeFallback.status,
+    alert
+  );
+  const imageUrl = String(
+    safeRaw.imageUrl ??
+      safeRaw.photoUrl ??
+      safeRaw.url ??
+      safeFallback.imageUrl ??
+      ""
+  );
+
+  return {
+    status,
+    alert: status === "accident" || alert,
+    imageUrl,
+    updatedAt: normalizeTimestamp(safeRaw.updatedAt ?? safeRaw.timestamp ?? safeFallback.updatedAt ?? Date.now())
+  };
+}
+
 function getPresence(payload) {
   const data = payload && typeof payload === "object" ? payload : {};
   const radar = isObject(data.radar) ? data.radar : {};
   const environment = isObject(data.environment) ? data.environment : {};
   const network = isObject(data.network) ? data.network : {};
+  const camera = getCameraRaw(data);
 
   return {
     radar: {
@@ -187,6 +235,13 @@ function getPresence(payload) {
       any: isObject(data.network),
       latency: hasAnyOwn(network, ["latency", "delay", "rtt", "ping"]),
       link: hasAnyOwn(network, ["link", "status"])
+    },
+    camera: {
+      any: isObject(data.camera) || isObject(data.traffic),
+      status: hasAnyOwn(camera, ["status", "state", "code", "statusCode", "alert", "accident", "crash", "warning"]),
+      alert: hasAnyOwn(camera, ["alert", "accident", "crash", "warning"]),
+      imageUrl: hasAnyOwn(camera, ["imageUrl", "photoUrl", "url"]),
+      updatedAt: hasAnyOwn(camera, ["updatedAt", "timestamp"])
     }
   };
 }
@@ -230,7 +285,8 @@ function normalizeSnapshot(payload) {
     _present: getPresence(data),
     radar: normalizeRadar(data.radar, previous ? previous.radar : null),
     environment: normalizeEnvironment(data.environment, previous ? previous.environment : null),
-    network: normalizeNetwork(data.network, previous ? previous.network : null)
+    network: normalizeNetwork(data.network, previous ? previous.network : null),
+    camera: normalizeCamera(getCameraRaw(data), previous ? previous.camera : null)
   };
 }
 
@@ -238,7 +294,8 @@ function snapshotToLatestRow(snapshot) {
   const present = snapshot._present || {
     radar: { targetCount: true, speed: true, distance: true, x: true, y: true, alert: true },
     environment: { temperature: true, humidity: true, pressure: true, altitude: true },
-    network: { latency: true, link: true }
+    network: { latency: true, link: true },
+    camera: { status: true, alert: true, imageUrl: true, updatedAt: true }
   };
   const row = {
     device_id: snapshot.deviceId,
@@ -261,7 +318,7 @@ function snapshotToLatestRow(snapshot) {
     row.radar_y = snapshot.radar.y;
   }
   if (present.radar.alert) {
-    row.radar_alert = snapshot.radar.alert;
+    row.radar_alert = false;
   }
   if (present.environment.temperature) {
     row.env_temperature = snapshot.environment.temperature;
@@ -281,6 +338,18 @@ function snapshotToLatestRow(snapshot) {
   if (present.network.link) {
     row.net_link = snapshot.network.link;
   }
+  if (present.camera && (present.camera.status || present.camera.alert)) {
+    row.camera_status = snapshot.camera.status;
+  }
+  if (present.camera && present.camera.alert) {
+    row.camera_alert = snapshot.camera.alert;
+  }
+  if (present.camera && present.camera.imageUrl) {
+    row.camera_image_url = snapshot.camera.imageUrl;
+  }
+  if (present.camera && (present.camera.updatedAt || present.camera.status || present.camera.alert || present.camera.imageUrl)) {
+    row.camera_updated_at = new Date(snapshot.camera.updatedAt).toISOString();
+  }
 
   return row;
 }
@@ -296,7 +365,7 @@ function latestRowToSnapshot(row) {
       distance: Math.max(0, toNumber(row.radar_distance, 0)),
       x: toNumber(row.radar_x, null),
       y: toNumber(row.radar_y, null),
-      alert: toBoolean(row.radar_alert, false)
+      alert: false
     },
     environment: {
       temperature: toNumber(row.env_temperature, null),
@@ -307,6 +376,12 @@ function latestRowToSnapshot(row) {
     network: {
       latency: toNumber(row.net_latency, null),
       link: String(row.net_link ?? "unknown")
+    },
+    camera: {
+      status: normalizeCameraStatus(row.camera_status, toBoolean(row.camera_alert, false)),
+      alert: toBoolean(row.camera_alert, false),
+      imageUrl: String(row.camera_image_url ?? ""),
+      updatedAt: normalizeTimestamp(Date.parse(row.camera_updated_at || row.updated_at || ""))
     }
   };
 }
@@ -368,6 +443,14 @@ function isMissingNetworkColumnError(err) {
   return msg.includes("net_latency") || msg.includes("net_link");
 }
 
+function isMissingCameraColumnError(err) {
+  const msg = String((err && err.message) || "").toLowerCase();
+  return msg.includes("camera_status") ||
+    msg.includes("camera_alert") ||
+    msg.includes("camera_image_url") ||
+    msg.includes("camera_updated_at");
+}
+
 function dropXYFromLatestRow(row) {
   const { radar_x, radar_y, ...rest } = row;
   return rest;
@@ -380,6 +463,11 @@ function dropEnvironmentFromLatestRow(row) {
 
 function dropNetworkFromLatestRow(row) {
   const { net_latency, net_link, ...rest } = row;
+  return rest;
+}
+
+function dropCameraFromLatestRow(row) {
+  const { camera_status, camera_alert, camera_image_url, camera_updated_at, ...rest } = row;
   return rest;
 }
 
@@ -402,6 +490,9 @@ async function upsertRadarSnapshot(snapshot) {
   if (!caps.supportsNetwork) {
     latestRow = dropNetworkFromLatestRow(latestRow);
   }
+  if (!caps.supportsCamera) {
+    latestRow = dropCameraFromLatestRow(latestRow);
+  }
 
   try {
     await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
@@ -416,7 +507,8 @@ async function upsertRadarSnapshot(snapshot) {
     const missingXY = caps.supportsRadarXY && isMissingRadarXYColumnError(err);
     const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
     const missingNet = caps.supportsNetwork && isMissingNetworkColumnError(err);
-    if (!missingXY && !missingEnv && !missingNet) {
+    const missingCamera = caps.supportsCamera && isMissingCameraColumnError(err);
+    if (!missingXY && !missingEnv && !missingNet && !missingCamera) {
       throw err;
     }
     if (missingXY) {
@@ -428,6 +520,9 @@ async function upsertRadarSnapshot(snapshot) {
     if (missingNet) {
       caps.supportsNetwork = false;
     }
+    if (missingCamera) {
+      caps.supportsCamera = false;
+    }
     latestRow = snapshotToLatestRow(snapshot);
     if (!caps.supportsRadarXY) {
       latestRow = dropXYFromLatestRow(latestRow);
@@ -437,6 +532,9 @@ async function upsertRadarSnapshot(snapshot) {
     }
     if (!caps.supportsNetwork) {
       latestRow = dropNetworkFromLatestRow(latestRow);
+    }
+    if (!caps.supportsCamera) {
+      latestRow = dropCameraFromLatestRow(latestRow);
     }
     await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
       method: "POST",
@@ -452,7 +550,8 @@ async function upsertRadarSnapshot(snapshot) {
     return {
       storage: "supabase",
       supportsEnvironment: caps.supportsEnvironment,
-      supportsNetwork: caps.supportsNetwork
+      supportsNetwork: caps.supportsNetwork,
+      supportsCamera: caps.supportsCamera
     };
   }
 
@@ -470,7 +569,7 @@ async function upsertRadarSnapshot(snapshot) {
           distance: snapshot.radar.distance,
           x: snapshot.radar.x,
           y: snapshot.radar.y,
-          alert: snapshot.radar.alert
+          alert: false
         }
       ]),
       expectText: true
@@ -482,7 +581,8 @@ async function upsertRadarSnapshot(snapshot) {
   return {
     storage: "supabase",
     supportsEnvironment: caps.supportsEnvironment,
-    supportsNetwork: caps.supportsNetwork
+    supportsNetwork: caps.supportsNetwork,
+    supportsCamera: caps.supportsCamera
   };
 }
 
@@ -511,6 +611,9 @@ async function readLatestSnapshot(deviceId) {
     if (caps.supportsNetwork) {
       selectParts.push("net_latency", "net_link");
     }
+    if (caps.supportsCamera) {
+      selectParts.push("camera_status", "camera_alert", "camera_image_url", "camera_updated_at");
+    }
 
     const params = new URLSearchParams();
     params.set("select", selectParts.join(","));
@@ -531,7 +634,8 @@ async function readLatestSnapshot(deviceId) {
     const missingXY = caps.supportsRadarXY && isMissingRadarXYColumnError(err);
     const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
     const missingNet = caps.supportsNetwork && isMissingNetworkColumnError(err);
-    if (!missingXY && !missingEnv && !missingNet) {
+    const missingCamera = caps.supportsCamera && isMissingCameraColumnError(err);
+    if (!missingXY && !missingEnv && !missingNet && !missingCamera) {
       throw err;
     }
     if (missingXY) {
@@ -542,6 +646,9 @@ async function readLatestSnapshot(deviceId) {
     }
     if (missingNet) {
       caps.supportsNetwork = false;
+    }
+    if (missingCamera) {
+      caps.supportsCamera = false;
     }
     rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery()}`, {
       method: "GET"

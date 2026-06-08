@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260606-camera-image-priority" />
   </head>
   <body>
     <header class="topbar">
@@ -30,6 +30,7 @@
         <a href="#overview">总览</a>
         <a href="#data">实时数据</a>
         <a href="#trend">趋势监测</a>
+        <a href="#camera">事故图像</a>
         <a href="#events">日志</a>
       </nav>
       <div class="top-actions">
@@ -148,6 +149,18 @@
           <canvas id="trendChart" width="1320" height="430" aria-label="温湿度趋势图"></canvas>
         </section>
 
+        <section class="panel camera-panel" id="camera">
+          <div class="panel-title">
+            <span>交通图像</span>
+            <strong>最新交通画面</strong>
+          </div>
+          <div class="camera-frame" id="cameraFrame">
+            <img id="cameraImage" src="normal.png" alt="交通状态示意图" />
+            <span class="camera-badge" id="cameraBadge">正常</span>
+          </div>
+          <p class="camera-caption" id="cameraCaption">正常通行，未触发事故告警</p>
+        </section>
+
         <section class="panel events-panel" id="events">
           <div class="panel-title">
             <span>运行日志</span>
@@ -162,6 +175,6 @@
     <span id="cloudSyncValue" hidden></span>
     <span id="sourceHint" hidden>当前使用本地模拟数据</span>
 
-    <script src="script.js?v=20260604-radar-coord-altitude"></script>
+    <script src="script.js?v=20260606-camera-image-priority"></script>
   </body>
 </html>

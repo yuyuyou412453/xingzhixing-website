@@ -24,6 +24,12 @@ const appState = {
       latency: 21,
       link: "stable"
     },
+    camera: {
+      status: "normal",
+      alert: false,
+      imageUrl: "",
+      updatedAt: Date.now()
+    },
     cloud: {
       alarmSynced: false
     }
@@ -37,6 +43,8 @@ const appState = {
 const DEFAULT_DEVICE_ID = "xzx-a12";
 const DEFAULT_HTTP_POLL_INTERVAL_MS = 2000;
 const DEFAULT_HTTP_ENDPOINT = `/api/latest?deviceId=${encodeURIComponent(DEFAULT_DEVICE_ID)}`;
+const CAMERA_NORMAL_IMAGE = "normal.png";
+const CAMERA_ACCIDENT_IMAGE = "accident.png";
 
 const refs = {
   systemStatus: document.getElementById("systemStatus"),
@@ -56,6 +64,10 @@ const refs = {
   gpsValue: document.getElementById("gpsValue"),
   latencyValue: document.getElementById("latencyValue"),
   cloudSyncValue: document.getElementById("cloudSyncValue"),
+  cameraFrame: document.getElementById("cameraFrame"),
+  cameraImage: document.getElementById("cameraImage"),
+  cameraBadge: document.getElementById("cameraBadge"),
+  cameraCaption: document.getElementById("cameraCaption"),
   trendChart: document.getElementById("trendChart"),
   sourceLabel: document.getElementById("sourceLabel"),
   sourceHint: document.getElementById("sourceHint"),
@@ -67,6 +79,25 @@ if (refs.latencyValue && refs.latencyValue.previousElementSibling) {
 }
 if (refs.latencyValue && refs.latencyValue.nextElementSibling) {
   refs.latencyValue.nextElementSibling.textContent = "SLE Link";
+}
+
+function syncCameraImageLayout() {
+  if (!refs.cameraFrame || !refs.cameraImage) {
+    return;
+  }
+  const { naturalWidth, naturalHeight } = refs.cameraImage;
+  if (!naturalWidth || !naturalHeight) {
+    return;
+  }
+  refs.cameraFrame.style.setProperty("--camera-aspect-ratio", `${naturalWidth} / ${naturalHeight}`);
+  refs.cameraFrame.style.setProperty("--camera-natural-width", `${Math.min(naturalWidth, 960)}px`);
+}
+
+if (refs.cameraImage) {
+  refs.cameraImage.addEventListener("load", syncCameraImageLayout);
+  if (refs.cameraImage.complete) {
+    syncCameraImageLayout();
+  }
 }
 
 function clamp(value, min, max) {
@@ -96,6 +127,34 @@ function toFiniteNumber(value, fallback) {
   return n;
 }
 
+function firstDefined() {
+  for (let i = 0; i < arguments.length; i += 1) {
+    if (arguments[i] !== null && arguments[i] !== undefined) {
+      return arguments[i];
+    }
+  }
+  return undefined;
+}
+
+function toBoolean(value, fallback = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on", "accident", "alert", "warning"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "0", "no", "off", "normal", "safe", "ok", "clear"].includes(normalized)) {
+      return false;
+    }
+  }
+  return fallback;
+}
+
 function formatGps(gps) {
   return `${formatNumber(gps.lat, 4)}, ${formatNumber(gps.lon, 4)}`;
 }
@@ -121,18 +180,57 @@ function renderRadarFields(radar) {
   }
 }
 
+function normalizeCameraStatus(status, alert) {
+  const value = String(status || "").trim().toLowerCase();
+  if (value === "0x02" || value === "2" || value === "accident" || value === "crash" || value === "alert" || value === "warning") {
+    return "accident";
+  }
+  if (value === "0x01" || value === "1" || value === "normal" || value === "safe" || value === "ok" || value === "clear") {
+    return "normal";
+  }
+  return alert ? "accident" : "normal";
+}
+
 function isAlertActive() {
-  return appState.manualAlert || appState.snapshot.radar.alert;
+  return appState.manualAlert || appState.snapshot.camera.alert;
 }
 
 function getAlertSource() {
   if (appState.manualAlert) {
     return "manual";
   }
-  if (appState.snapshot.radar.alert) {
-    return "device";
+  if (appState.snapshot.camera.alert) {
+    return "camera";
   }
   return "none";
+}
+
+function getCameraViewState() {
+  const alertActive = isAlertActive();
+  const source = getAlertSource();
+  const cameraImage = appState.snapshot.camera.imageUrl || "";
+  const cleanImageName = cameraImage.split(/[?#]/)[0].split("/").pop();
+  const hasUploadedCameraImage = Boolean(
+    cameraImage &&
+      cleanImageName !== CAMERA_NORMAL_IMAGE &&
+      cleanImageName !== CAMERA_ACCIDENT_IMAGE
+  );
+  const fallbackImage = alertActive ? CAMERA_ACCIDENT_IMAGE : CAMERA_NORMAL_IMAGE;
+  const imageUrl = hasUploadedCameraImage ? cameraImage : fallbackImage;
+
+  let caption = "正常通行，未触发事故告警";
+  if (source === "manual") {
+    caption = "云端手动告警已触发，图片优先使用最新摄像头画面";
+  } else if (source === "camera") {
+    caption = "摄像头端状态已同步云端，图片优先使用最新摄像头画面";
+  }
+
+  return {
+    alert: alertActive,
+    imageUrl,
+    badge: alertActive ? "事故告警" : "正常",
+    caption
+  };
 }
 
 function addEvent(level, title, detail) {
@@ -162,7 +260,10 @@ function renderStatus() {
   if (alertSource === "manual") {
     refs.sceneStatus.textContent = "云端手动告警已下发 · 等待现场确认";
     refs.sceneAlert.textContent = "云端手动告警已下发";
-  } else if (alertSource === "device") {
+  } else if (alertSource === "camera") {
+    refs.sceneStatus.textContent = "摄像头端事故告警已同步云端";
+    refs.sceneAlert.textContent = "摄像头告警已同步云端";
+  } else if (false) {
     refs.sceneStatus.textContent = "实物路牌告警已同步云端 · 雷达异常事件";
     refs.sceneAlert.textContent = "设备告警已同步云端";
   } else {
@@ -186,12 +287,28 @@ function renderData() {
   refs.latencyValue.textContent = `${formatNumber(network.latency, 0)}ms`;
   if (alertSource === "manual") {
     refs.cloudSyncValue.textContent = "手动告警";
-  } else if (alertSource === "device" || cloudSynced) {
+  } else if (alertSource === "camera") {
+    refs.cloudSyncValue.textContent = "摄像头告警";
+  } else if (cloudSynced) {
     refs.cloudSyncValue.textContent = "设备同步";
   } else {
     refs.cloudSyncValue.textContent = "待命";
   }
   refs.lastUpdate.textContent = nowClock();
+}
+
+function renderCamera() {
+  if (!refs.cameraFrame || !refs.cameraImage || !refs.cameraBadge || !refs.cameraCaption) {
+    return;
+  }
+  const view = getCameraViewState();
+  refs.cameraFrame.classList.toggle("alert", view.alert);
+  if (refs.cameraImage.getAttribute("src") !== view.imageUrl) {
+    refs.cameraImage.setAttribute("src", view.imageUrl);
+  }
+  syncCameraImageLayout();
+  refs.cameraBadge.textContent = view.badge;
+  refs.cameraCaption.textContent = view.caption;
 }
 
 function drawTrendChart() {
@@ -257,6 +374,7 @@ function drawTrendChart() {
 function renderSnapshot() {
   renderStatus();
   renderData();
+  renderCamera();
   renderRadarFields(appState.snapshot.radar);
   drawTrendChart();
 }
@@ -289,28 +407,29 @@ function normalizeSnapshot(payload) {
   const radar = payload.radar || payload.traffic || {};
   const gps = payload.gps || payload.location || {};
   const network = payload.network || {};
+  const camera = payload.camera || payload.traffic || {};
   const cloud = payload.cloud || {};
 
   return {
     timestamp: typeof payload.timestamp === "number" ? payload.timestamp : Date.now(),
     environment: {
-      temperature: Number(environment.temperature ?? previous.environment.temperature),
-      humidity: Number(environment.humidity ?? previous.environment.humidity),
-      pressure: Number(environment.pressure ?? previous.environment.pressure)
+      temperature: Number(firstDefined(environment.temperature, previous.environment.temperature)),
+      humidity: Number(firstDefined(environment.humidity, previous.environment.humidity)),
+      pressure: Number(firstDefined(environment.pressure, previous.environment.pressure))
     },
     radar: (() => {
       const x = toFiniteNumber(
-        radar.x ?? radar.posX ?? radar.targetX ?? radar.coordinateX ?? previous.radar.x,
+        firstDefined(radar.x, radar.posX, radar.targetX, radar.coordinateX, previous.radar.x),
         previous.radar.x
       );
       const y = toFiniteNumber(
-        radar.y ?? radar.posY ?? radar.targetY ?? radar.coordinateY ?? previous.radar.y,
+        firstDefined(radar.y, radar.posY, radar.targetY, radar.coordinateY, previous.radar.y),
         previous.radar.y
       );
-      const speed = toFiniteNumber(radar.speed ?? radar.v ?? previous.radar.speed, previous.radar.speed);
-      const distance = toFiniteNumber(radar.distance ?? previous.radar.distance, previous.radar.distance);
+      const speed = toFiniteNumber(firstDefined(radar.speed, radar.v, previous.radar.speed), previous.radar.speed);
+      const distance = toFiniteNumber(firstDefined(radar.distance, previous.radar.distance), previous.radar.distance);
       const targetCount = toFiniteNumber(
-        radar.targetCount ?? radar.targets ?? (Number.isFinite(x) && Number.isFinite(y) ? 1 : previous.radar.targetCount),
+        firstDefined(radar.targetCount, radar.targets, Number.isFinite(x) && Number.isFinite(y) ? 1 : previous.radar.targetCount),
         previous.radar.targetCount
       );
       return {
@@ -319,26 +438,37 @@ function normalizeSnapshot(payload) {
         distance,
         x,
         y,
-        alert: Boolean(radar.alert ?? previous.radar.alert)
+        alert: false
       };
     })(),
     gps: {
-      lat: Number(gps.lat ?? previous.gps.lat),
-      lon: Number(gps.lon ?? previous.gps.lon),
-      alt: Number(gps.alt ?? previous.gps.alt)
+      lat: Number(firstDefined(gps.lat, previous.gps.lat)),
+      lon: Number(firstDefined(gps.lon, previous.gps.lon)),
+      alt: Number(firstDefined(gps.alt, previous.gps.alt))
     },
     network: (() => {
       const latencyRaw = toFiniteNumber(
-        network.latency ?? network.sleLatency ?? previous.network.latency,
+        firstDefined(network.latency, network.sleLatency, previous.network.latency),
         previous.network.latency
       );
       return {
         latency: clamp(latencyRaw, 0, 999),
-        link: String(network.link ?? network.sleLink ?? previous.network.link)
+        link: String(firstDefined(network.link, network.sleLink, previous.network.link))
+      };
+    })(),
+    camera: (() => {
+      const rawAlert = firstDefined(camera.alert, camera.accident, camera.crash, camera.warning);
+      const alert = toBoolean(rawAlert, previous.camera.alert);
+      const status = normalizeCameraStatus(firstDefined(camera.status, camera.state, camera.code, camera.statusCode, previous.camera.status), alert);
+      return {
+        status,
+        alert: status === "accident" || alert,
+        imageUrl: String(firstDefined(camera.imageUrl, camera.photoUrl, camera.url, previous.camera.imageUrl, "")),
+        updatedAt: Number(firstDefined(camera.updatedAt, camera.timestamp, previous.camera.updatedAt, Date.now()))
       };
     })(),
     cloud: {
-      alarmSynced: Boolean(cloud.alarmSynced ?? previous.cloud.alarmSynced)
+      alarmSynced: Boolean(firstDefined(cloud.alarmSynced, previous.cloud.alarmSynced))
     }
   };
 }
@@ -408,6 +538,12 @@ class DataConnector {
         network: {
           latency: clamp(prev.network.latency + randomBetween(-2, 2), 10, 80),
           link: "stable"
+        },
+        camera: {
+          status: prev.camera.status,
+          alert: prev.camera.alert,
+          imageUrl: prev.camera.imageUrl,
+          updatedAt: prev.camera.updatedAt
         },
         cloud: {
           alarmSynced: appState.manualAlert
@@ -485,20 +621,61 @@ function handleIncomingSnapshot(snapshot, sourceName) {
 
 const connector = new DataConnector(handleIncomingSnapshot);
 
+async function postCloudAlert(alert) {
+  const response = await fetch("/api/alert", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      deviceId: DEFAULT_DEVICE_ID,
+      alert
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.error || `HTTP ${response.status}`);
+  }
+  return payload;
+}
+
 function bindActions() {
-  refs.simulateAlertBtn.addEventListener("click", () => {
+  refs.simulateAlertBtn.addEventListener("click", async () => {
     appState.manualAlert = true;
     appState.snapshot.cloud.alarmSynced = true;
+    appState.snapshot.camera = {
+      ...appState.snapshot.camera,
+      status: "accident",
+      alert: true,
+      updatedAt: Date.now()
+    };
     renderSnapshot();
-    addEvent("warn", "云端手动告警", "网站端已手动下发告警状态");
+    addEvent("warn", "云端手动告警", "已切换事故状态，图片保留最新摄像头画面");
+    try {
+      await postCloudAlert(true);
+      addEvent("info", "手动告警已同步", "camera.alert=true");
+    } catch (error) {
+      addEvent("warn", "手动告警云端同步失败", error.message);
+    }
   });
 
-  refs.clearAlertBtn.addEventListener("click", () => {
+  refs.clearAlertBtn.addEventListener("click", async () => {
     appState.manualAlert = false;
-    appState.snapshot.radar.alert = false;
     appState.snapshot.cloud.alarmSynced = false;
+    appState.snapshot.camera = {
+      ...appState.snapshot.camera,
+      status: "normal",
+      alert: false,
+      updatedAt: Date.now()
+    };
     renderSnapshot();
-    addEvent("info", "告警解除", "系统恢复巡航");
+    addEvent("info", "告警解除", "已切换正常状态，图片保留最新摄像头画面");
+    try {
+      await postCloudAlert(false);
+      addEvent("info", "解除告警已同步", "camera.alert=false");
+    } catch (error) {
+      addEvent("warn", "解除告警云端同步失败", error.message);
+    }
   });
 }
 

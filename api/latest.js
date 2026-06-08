@@ -46,13 +46,23 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    const radar = snapshot.radar
+      ? { ...snapshot.radar, alert: false }
+      : null;
+
     sendJson(res, 200, {
       timestamp: snapshot.timestamp,
-      radar: snapshot.radar,
+      radar,
       environment: snapshot.environment || null,
       network: snapshot.network || {
         latency: null,
         link: "unknown"
+      },
+      camera: snapshot.camera || {
+        status: "normal",
+        alert: false,
+        imageUrl: "",
+        updatedAt: snapshot.timestamp
       },
       gps: {
         alt: snapshot.environment && Number.isFinite(Number(snapshot.environment.altitude))
@@ -60,7 +70,7 @@ module.exports = async function handler(req, res) {
           : null
       },
       cloud: {
-        alarmSynced: Boolean(snapshot.radar && snapshot.radar.alert)
+        alarmSynced: Boolean(snapshot.camera && snapshot.camera.alert)
       },
       deviceId: snapshot.deviceId
     });
