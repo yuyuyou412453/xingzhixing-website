@@ -12,7 +12,11 @@ create table if not exists telemetry_latest (
   env_pressure numeric,
   env_altitude numeric,
   net_latency numeric,
-  net_link text
+  net_link text,
+  camera_status text,
+  camera_alert boolean,
+  camera_image_url text,
+  camera_updated_at timestamptz
 );
 
 alter table telemetry_latest add column if not exists radar_x numeric;
@@ -23,6 +27,10 @@ alter table telemetry_latest add column if not exists env_pressure numeric;
 alter table telemetry_latest add column if not exists env_altitude numeric;
 alter table telemetry_latest add column if not exists net_latency numeric;
 alter table telemetry_latest add column if not exists net_link text;
+alter table telemetry_latest add column if not exists camera_status text;
+alter table telemetry_latest add column if not exists camera_alert boolean;
+alter table telemetry_latest add column if not exists camera_image_url text;
+alter table telemetry_latest add column if not exists camera_updated_at timestamptz;
 
 create table if not exists radar_logs (
   id bigint generated always as identity primary key,

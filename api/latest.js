@@ -69,8 +69,21 @@ module.exports = async function handler(req, res) {
           ? Number(snapshot.environment.altitude)
           : null
       },
-      cloud: {
-        alarmSynced: Boolean(snapshot.camera && snapshot.camera.alert)
+      cloud: snapshot.cloud || {
+        alarmSynced: Boolean(snapshot.camera && snapshot.camera.alert),
+        cameraAlert: Boolean(snapshot.camera && snapshot.camera.alert),
+        manualAlert: false,
+        manualUpdatedAt: null,
+        manualClearUntil: null,
+        manualClearActive: false,
+        finalAlert: Boolean(snapshot.camera && snapshot.camera.alert),
+        correction: {
+          active: false,
+          status: "normal",
+          code: 1,
+          ttlMs: 0,
+          expiresAt: null
+        }
       },
       deviceId: snapshot.deviceId
     });

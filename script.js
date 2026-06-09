@@ -31,7 +31,20 @@ const appState = {
       updatedAt: Date.now()
     },
     cloud: {
-      alarmSynced: false
+      alarmSynced: false,
+      cameraAlert: false,
+      manualAlert: false,
+      manualUpdatedAt: null,
+      manualClearUntil: null,
+      manualClearActive: false,
+      finalAlert: false,
+      correction: {
+        active: false,
+        status: "normal",
+        code: 1,
+        ttlMs: 0,
+        expiresAt: null
+      }
     }
   },
   history: {
@@ -191,12 +204,31 @@ function normalizeCameraStatus(status, alert) {
   return alert ? "accident" : "normal";
 }
 
+function isManualClearActiveCloud(cloud) {
+  if (!cloud || !cloud.manualClearActive) {
+    return false;
+  }
+  const clearUntil = Number(cloud.manualClearUntil || 0);
+  return !clearUntil || clearUntil > Date.now();
+}
+
 function isAlertActive() {
-  return appState.manualAlert || appState.snapshot.camera.alert;
+  const cloud = appState.snapshot.cloud || {};
+  if (isManualClearActiveCloud(cloud)) {
+    return false;
+  }
+  if (typeof cloud.finalAlert === "boolean") {
+    return cloud.finalAlert;
+  }
+  return Boolean(cloud.manualAlert || appState.snapshot.camera.alert);
 }
 
 function getAlertSource() {
-  if (appState.manualAlert) {
+  const cloud = appState.snapshot.cloud || {};
+  if (isManualClearActiveCloud(cloud)) {
+    return "manualClear";
+  }
+  if (cloud.manualAlert) {
     return "manual";
   }
   if (appState.snapshot.camera.alert) {
@@ -219,10 +251,12 @@ function getCameraViewState() {
   const imageUrl = hasUploadedCameraImage ? cameraImage : fallbackImage;
 
   let caption = "正常通行，未触发事故告警";
-  if (source === "manual") {
-    caption = "云端手动告警已触发，图片优先使用最新摄像头画面";
+  if (source === "manualClear") {
+    caption = "云端解除告警正在短时校正，图片优先使用最新交通画面";
+  } else if (source === "manual") {
+    caption = "云端手动告警已触发，图片优先使用最新交通画面";
   } else if (source === "camera") {
-    caption = "摄像头端状态已同步云端，图片优先使用最新摄像头画面";
+    caption = "摄像头端状态已同步云端，图片优先使用最新交通画面";
   }
 
   return {
@@ -257,7 +291,10 @@ function renderStatus() {
   refs.systemStatus.classList.toggle("alert", alertActive);
   refs.roadScene.classList.toggle("alert", alertActive);
   refs.systemStatus.textContent = alertActive ? "事故告警中" : "系统巡航中";
-  if (alertSource === "manual") {
+  if (alertSource === "manualClear") {
+    refs.sceneStatus.textContent = "云端解除告警校正中 · 正在下发正常状态";
+    refs.sceneAlert.textContent = "云端校正为正常";
+  } else if (alertSource === "manual") {
     refs.sceneStatus.textContent = "云端手动告警已下发 · 等待现场确认";
     refs.sceneAlert.textContent = "云端手动告警已下发";
   } else if (alertSource === "camera") {
@@ -285,7 +322,9 @@ function renderData() {
   renderRadarFields(radar);
   refs.gpsValue.textContent = formatGps(gps);
   refs.latencyValue.textContent = `${formatNumber(network.latency, 0)}ms`;
-  if (alertSource === "manual") {
+  if (alertSource === "manualClear") {
+    refs.cloudSyncValue.textContent = "云端校正中";
+  } else if (alertSource === "manual") {
     refs.cloudSyncValue.textContent = "手动告警";
   } else if (alertSource === "camera") {
     refs.cloudSyncValue.textContent = "摄像头告警";
@@ -409,6 +448,22 @@ function normalizeSnapshot(payload) {
   const network = payload.network || {};
   const camera = payload.camera || payload.traffic || {};
   const cloud = payload.cloud || {};
+  const rawCameraAlert = firstDefined(camera.alert, camera.accident, camera.crash, camera.warning);
+  const normalizedCameraAlert = toBoolean(rawCameraAlert, previous.camera.alert);
+  const normalizedCameraStatus = normalizeCameraStatus(
+    firstDefined(camera.status, camera.state, camera.code, camera.statusCode, previous.camera.status),
+    normalizedCameraAlert
+  );
+  const cameraAlert = normalizedCameraStatus === "accident" || normalizedCameraAlert;
+  const manualAlert = toBoolean(firstDefined(cloud.manualAlert, previous.cloud.manualAlert, appState.manualAlert), false);
+  const manualClearUntil = firstDefined(cloud.manualClearUntil, previous.cloud.manualClearUntil, null);
+  const manualClearUntilMs = Number(manualClearUntil || 0);
+  const manualClearActive = toBoolean(firstDefined(cloud.manualClearActive, previous.cloud.manualClearActive), false) &&
+    (!manualClearUntilMs || manualClearUntilMs > Date.now());
+  const finalAlert = toBoolean(
+    firstDefined(cloud.finalAlert, manualClearActive ? false : undefined, manualAlert || cameraAlert),
+    manualClearActive ? false : (manualAlert || cameraAlert)
+  );
 
   return {
     timestamp: typeof payload.timestamp === "number" ? payload.timestamp : Date.now(),
@@ -457,18 +512,28 @@ function normalizeSnapshot(payload) {
       };
     })(),
     camera: (() => {
-      const rawAlert = firstDefined(camera.alert, camera.accident, camera.crash, camera.warning);
-      const alert = toBoolean(rawAlert, previous.camera.alert);
-      const status = normalizeCameraStatus(firstDefined(camera.status, camera.state, camera.code, camera.statusCode, previous.camera.status), alert);
       return {
-        status,
-        alert: status === "accident" || alert,
+        status: normalizedCameraStatus,
+        alert: cameraAlert,
         imageUrl: String(firstDefined(camera.imageUrl, camera.photoUrl, camera.url, previous.camera.imageUrl, "")),
         updatedAt: Number(firstDefined(camera.updatedAt, camera.timestamp, previous.camera.updatedAt, Date.now()))
       };
     })(),
     cloud: {
-      alarmSynced: Boolean(firstDefined(cloud.alarmSynced, previous.cloud.alarmSynced))
+      alarmSynced: toBoolean(firstDefined(cloud.alarmSynced, finalAlert, previous.cloud.alarmSynced), finalAlert),
+      cameraAlert: toBoolean(firstDefined(cloud.cameraAlert, cameraAlert, previous.cloud.cameraAlert), cameraAlert),
+      manualAlert,
+      manualUpdatedAt: firstDefined(cloud.manualUpdatedAt, previous.cloud.manualUpdatedAt, null),
+      manualClearUntil,
+      manualClearActive,
+      finalAlert,
+      correction: cloud.correction || previous.cloud.correction || {
+        active: false,
+        status: "normal",
+        code: 1,
+        ttlMs: 0,
+        expiresAt: null
+      }
     }
   };
 }
@@ -546,7 +611,10 @@ class DataConnector {
           updatedAt: prev.camera.updatedAt
         },
         cloud: {
-          alarmSynced: appState.manualAlert
+          ...prev.cloud,
+          alarmSynced: isAlertActive(),
+          manualAlert: appState.manualAlert,
+          finalAlert: isAlertActive()
         }
       };
       this.push(next, "mock");
@@ -612,6 +680,7 @@ class DataConnector {
 
 function handleIncomingSnapshot(snapshot, sourceName) {
   appState.snapshot = snapshot;
+  appState.manualAlert = Boolean(snapshot.cloud && snapshot.cloud.manualAlert);
   pushHistory(snapshot);
   renderSnapshot();
   if (sourceName !== "mock") {
@@ -642,37 +711,63 @@ async function postCloudAlert(alert) {
 function bindActions() {
   refs.simulateAlertBtn.addEventListener("click", async () => {
     appState.manualAlert = true;
-    appState.snapshot.cloud.alarmSynced = true;
-    appState.snapshot.camera = {
-      ...appState.snapshot.camera,
-      status: "accident",
-      alert: true,
-      updatedAt: Date.now()
+    appState.snapshot.cloud = {
+      ...appState.snapshot.cloud,
+      alarmSynced: true,
+      manualAlert: true,
+      manualClearActive: false,
+      finalAlert: true,
+      correction: {
+        active: false,
+        status: "normal",
+        code: 1,
+        ttlMs: 0,
+        expiresAt: null
+      }
     };
     renderSnapshot();
-    addEvent("warn", "云端手动告警", "已切换事故状态，图片保留最新摄像头画面");
+    addEvent("warn", "云端手动告警", "已切换事故状态，图片保留最新交通画面");
     try {
-      await postCloudAlert(true);
-      addEvent("info", "手动告警已同步", "camera.alert=true");
+      const payload = await postCloudAlert(true);
+      if (payload.cloud) {
+        appState.snapshot.cloud = payload.cloud;
+        appState.manualAlert = Boolean(payload.cloud.manualAlert);
+        renderSnapshot();
+      }
+      addEvent("info", "手动告警已同步", "cloud.manualAlert=true");
     } catch (error) {
       addEvent("warn", "手动告警云端同步失败", error.message);
     }
   });
 
   refs.clearAlertBtn.addEventListener("click", async () => {
+    const now = Date.now();
     appState.manualAlert = false;
-    appState.snapshot.cloud.alarmSynced = false;
-    appState.snapshot.camera = {
-      ...appState.snapshot.camera,
-      status: "normal",
-      alert: false,
-      updatedAt: Date.now()
+    appState.snapshot.cloud = {
+      ...appState.snapshot.cloud,
+      alarmSynced: false,
+      manualAlert: false,
+      manualClearActive: true,
+      manualClearUntil: now + 10000,
+      finalAlert: false,
+      correction: {
+        active: true,
+        status: "normal",
+        code: 1,
+        ttlMs: 10000,
+        expiresAt: now + 10000
+      }
     };
     renderSnapshot();
-    addEvent("info", "告警解除", "已切换正常状态，图片保留最新摄像头画面");
+    addEvent("info", "告警解除", "已切换正常状态，图片保留最新交通画面");
     try {
-      await postCloudAlert(false);
-      addEvent("info", "解除告警已同步", "camera.alert=false");
+      const payload = await postCloudAlert(false);
+      if (payload.cloud) {
+        appState.snapshot.cloud = payload.cloud;
+        appState.manualAlert = Boolean(payload.cloud.manualAlert);
+        renderSnapshot();
+      }
+      addEvent("info", "解除告警已同步", "cloud.manualAlert=false，短时校正下发");
     } catch (error) {
       addEvent("warn", "解除告警云端同步失败", error.message);
     }

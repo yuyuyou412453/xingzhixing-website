@@ -1,6 +1,6 @@
 "use strict";
 
-const { hasSupabase, normalizeSnapshot, upsertRadarSnapshot } = require("./_lib/radar_store");
+const { hasSupabase, updateManualAlert } = require("./_lib/radar_store");
 
 const DEFAULT_DEVICE_ID = "xzx-a12";
 
@@ -64,22 +64,13 @@ module.exports = async function handler(req, res) {
     const body = await readJsonBody(req);
     const alert = Boolean(body.alert);
     const deviceId = String(body.deviceId || DEFAULT_DEVICE_ID).trim() || DEFAULT_DEVICE_ID;
-    const status = alert ? "accident" : "normal";
-    const snapshot = normalizeSnapshot({
-      deviceId,
-      timestamp: Date.now(),
-      camera: {
-        status,
-        alert,
-        updatedAt: Date.now()
-      }
-    });
-    const result = await upsertRadarSnapshot(snapshot);
+    const snapshot = await updateManualAlert(deviceId, alert);
 
     sendJson(res, 200, {
       ok: true,
-      storage: result.storage,
+      storage: hasSupabase() ? "supabase" : "memory",
       supabase: hasSupabase(),
+      cloud: snapshot.cloud,
       camera: snapshot.camera,
       deviceId
     });

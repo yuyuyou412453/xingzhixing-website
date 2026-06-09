@@ -1,6 +1,7 @@
 "use strict";
 
 const CACHE_KEY = "__xzxRadarLatestCache";
+const MANUAL_CLEAR_OVERRIDE_MS = 10000;
 
 function getCache() {
   if (!globalThis[CACHE_KEY]) {
@@ -15,7 +16,8 @@ function getSchemaCaps() {
     supportsRadarXY: true,
     supportsEnvironment: true,
     supportsNetwork: true,
-    supportsCamera: true
+    supportsCamera: true,
+    supportsManual: true
   };
 }
 
@@ -182,6 +184,26 @@ function normalizeCameraStatus(rawStatus, alert) {
   return alert ? "accident" : "normal";
 }
 
+function normalizeCameraImageUrl(raw, fallbackUrl) {
+  const safeRaw = isObject(raw) ? raw : {};
+  const directUrl = safeRaw.imageUrl ?? safeRaw.photoUrl ?? safeRaw.url ?? safeRaw.dataUrl;
+  if (directUrl !== null && directUrl !== undefined && String(directUrl).trim() !== "") {
+    return String(directUrl).trim();
+  }
+
+  const rawBase64 = safeRaw.imageBase64 ?? safeRaw.imageData ?? safeRaw.jpegBase64 ?? safeRaw.photoBase64;
+  if (rawBase64 !== null && rawBase64 !== undefined && String(rawBase64).trim() !== "") {
+    const text = String(rawBase64).trim();
+    if (text.startsWith("data:image/")) {
+      return text;
+    }
+    const mime = String(safeRaw.mime ?? safeRaw.mimeType ?? "image/jpeg").trim() || "image/jpeg";
+    return `data:${mime};base64,${text}`;
+  }
+
+  return String(fallbackUrl ?? "");
+}
+
 function normalizeCamera(raw, fallback) {
   const safeRaw = isObject(raw) ? raw : {};
   const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
@@ -191,13 +213,7 @@ function normalizeCamera(raw, fallback) {
     safeRaw.status ?? safeRaw.state ?? safeRaw.code ?? safeRaw.statusCode ?? safeFallback.status,
     alert
   );
-  const imageUrl = String(
-    safeRaw.imageUrl ??
-      safeRaw.photoUrl ??
-      safeRaw.url ??
-      safeFallback.imageUrl ??
-      ""
-  );
+  const imageUrl = normalizeCameraImageUrl(safeRaw, safeFallback.imageUrl);
 
   return {
     status,
@@ -205,6 +221,62 @@ function normalizeCamera(raw, fallback) {
     imageUrl,
     updatedAt: normalizeTimestamp(safeRaw.updatedAt ?? safeRaw.timestamp ?? safeFallback.updatedAt ?? Date.now())
   };
+}
+
+function normalizeOptionalTimestamp(rawValue) {
+  if (rawValue === null || rawValue === undefined || rawValue === "") {
+    return null;
+  }
+  const parsed = typeof rawValue === "number" ? rawValue : Date.parse(String(rawValue));
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return normalizeTimestamp(parsed);
+}
+
+function buildCloudState(snapshot) {
+  const now = Date.now();
+  const sourceCloud = snapshot && isObject(snapshot.cloud) ? snapshot.cloud : {};
+  const cameraAlert = Boolean(snapshot && snapshot.camera && snapshot.camera.alert);
+  const manualAlert = toBoolean(sourceCloud.manualAlert, false);
+  const manualUpdatedAt = normalizeOptionalTimestamp(sourceCloud.manualUpdatedAt);
+  const manualClearUntil = normalizeOptionalTimestamp(sourceCloud.manualClearUntil);
+  const manualForceUntil = manualUpdatedAt ? manualUpdatedAt + MANUAL_CLEAR_OVERRIDE_MS : null;
+  const manualForceActive = Boolean(manualForceUntil && manualForceUntil > now);
+  const manualClearActive = Boolean(manualClearUntil && manualClearUntil > now);
+  const finalAlert = manualClearActive ? false : (cameraAlert || manualAlert);
+  const correctionActive = manualClearActive || manualForceActive;
+  const correctionStatus = manualAlert && !manualClearActive ? "accident" : "normal";
+  const correctionCode = correctionStatus === "accident" ? 2 : 1;
+  const correctionUntil = manualClearActive ? manualClearUntil : manualForceUntil;
+  const ttlMs = correctionActive ? Math.max(0, correctionUntil - now) : 0;
+
+  return {
+    alarmSynced: finalAlert,
+    cameraAlert,
+    manualAlert,
+    manualUpdatedAt,
+    manualClearUntil,
+    manualClearActive,
+    manualForceUntil,
+    manualForceActive,
+    finalAlert,
+    correction: {
+      active: correctionActive,
+      status: correctionStatus,
+      code: correctionCode,
+      ttlMs,
+      expiresAt: correctionUntil
+    }
+  };
+}
+
+function applyCloudState(snapshot) {
+  if (!snapshot) {
+    return snapshot;
+  }
+  snapshot.cloud = buildCloudState(snapshot);
+  return snapshot;
 }
 
 function getPresence(payload) {
@@ -240,7 +312,7 @@ function getPresence(payload) {
       any: isObject(data.camera) || isObject(data.traffic),
       status: hasAnyOwn(camera, ["status", "state", "code", "statusCode", "alert", "accident", "crash", "warning"]),
       alert: hasAnyOwn(camera, ["alert", "accident", "crash", "warning"]),
-      imageUrl: hasAnyOwn(camera, ["imageUrl", "photoUrl", "url"]),
+      imageUrl: hasAnyOwn(camera, ["imageUrl", "photoUrl", "url", "dataUrl", "imageBase64", "imageData", "jpegBase64", "photoBase64"]),
       updatedAt: hasAnyOwn(camera, ["updatedAt", "timestamp"])
     }
   };
@@ -356,7 +428,7 @@ function snapshotToLatestRow(snapshot) {
 
 function latestRowToSnapshot(row) {
   const ts = Date.parse(row.updated_at || "");
-  return {
+  return applyCloudState({
     deviceId: row.device_id,
     timestamp: Number.isFinite(ts) ? ts : Date.now(),
     radar: {
@@ -382,8 +454,13 @@ function latestRowToSnapshot(row) {
       alert: toBoolean(row.camera_alert, false),
       imageUrl: String(row.camera_image_url ?? ""),
       updatedAt: normalizeTimestamp(Date.parse(row.camera_updated_at || row.updated_at || ""))
+    },
+    cloud: {
+      manualAlert: toBoolean(row.manual_alert, false),
+      manualUpdatedAt: normalizeOptionalTimestamp(row.manual_updated_at),
+      manualClearUntil: normalizeOptionalTimestamp(row.manual_clear_until)
     }
-  };
+  });
 }
 
 async function supabaseRequest(path, init) {
@@ -451,6 +528,13 @@ function isMissingCameraColumnError(err) {
     msg.includes("camera_updated_at");
 }
 
+function isMissingManualColumnError(err) {
+  const msg = String((err && err.message) || "").toLowerCase();
+  return msg.includes("manual_alert") ||
+    msg.includes("manual_updated_at") ||
+    msg.includes("manual_clear_until");
+}
+
 function dropXYFromLatestRow(row) {
   const { radar_x, radar_y, ...rest } = row;
   return rest;
@@ -508,7 +592,8 @@ async function upsertRadarSnapshot(snapshot) {
     const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
     const missingNet = caps.supportsNetwork && isMissingNetworkColumnError(err);
     const missingCamera = caps.supportsCamera && isMissingCameraColumnError(err);
-    if (!missingXY && !missingEnv && !missingNet && !missingCamera) {
+    const missingManual = caps.supportsManual && isMissingManualColumnError(err);
+    if (!missingXY && !missingEnv && !missingNet && !missingCamera && !missingManual) {
       throw err;
     }
     if (missingXY) {
@@ -522,6 +607,9 @@ async function upsertRadarSnapshot(snapshot) {
     }
     if (missingCamera) {
       caps.supportsCamera = false;
+    }
+    if (missingManual) {
+      caps.supportsManual = false;
     }
     latestRow = snapshotToLatestRow(snapshot);
     if (!caps.supportsRadarXY) {
@@ -614,6 +702,9 @@ async function readLatestSnapshot(deviceId) {
     if (caps.supportsCamera) {
       selectParts.push("camera_status", "camera_alert", "camera_image_url", "camera_updated_at");
     }
+    if (caps.supportsManual) {
+      selectParts.push("manual_alert", "manual_updated_at", "manual_clear_until");
+    }
 
     const params = new URLSearchParams();
     params.set("select", selectParts.join(","));
@@ -635,7 +726,8 @@ async function readLatestSnapshot(deviceId) {
     const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
     const missingNet = caps.supportsNetwork && isMissingNetworkColumnError(err);
     const missingCamera = caps.supportsCamera && isMissingCameraColumnError(err);
-    if (!missingXY && !missingEnv && !missingNet && !missingCamera) {
+    const missingManual = caps.supportsManual && isMissingManualColumnError(err);
+    if (!missingXY && !missingEnv && !missingNet && !missingCamera && !missingManual) {
       throw err;
     }
     if (missingXY) {
@@ -649,6 +741,9 @@ async function readLatestSnapshot(deviceId) {
     }
     if (missingCamera) {
       caps.supportsCamera = false;
+    }
+    if (missingManual) {
+      caps.supportsManual = false;
     }
     rows = await supabaseRequest(`/rest/v1/telemetry_latest?${buildQuery()}`, {
       method: "GET"
@@ -664,9 +759,70 @@ async function readLatestSnapshot(deviceId) {
   return snapshot;
 }
 
+async function updateManualAlert(deviceId, alert) {
+  const cleanDeviceId = String(deviceId || "").trim();
+  if (!cleanDeviceId) {
+    throw new Error("deviceId is required");
+  }
+
+  const now = Date.now();
+  const manualClearUntil = alert ? null : now + MANUAL_CLEAR_OVERRIDE_MS;
+  const cloudPatch = {
+    manualAlert: Boolean(alert),
+    manualUpdatedAt: now,
+    manualClearUntil
+  };
+
+  if (!hasSupabase()) {
+    const cache = getCache();
+    const previous = cache.get(cleanDeviceId) || {
+      deviceId: cleanDeviceId,
+      timestamp: now,
+      radar: normalizeRadar({}, null),
+      environment: normalizeEnvironment({}, null),
+      network: normalizeNetwork({}, null),
+      camera: normalizeCamera({}, null)
+    };
+    previous.timestamp = now;
+    previous.cloud = cloudPatch;
+    const snapshot = applyCloudState(previous);
+    cache.set(cleanDeviceId, snapshot);
+    return snapshot;
+  }
+
+  const row = {
+    device_id: cleanDeviceId,
+    updated_at: new Date(now).toISOString(),
+    manual_alert: Boolean(alert),
+    manual_updated_at: new Date(now).toISOString(),
+    manual_clear_until: manualClearUntil ? new Date(manualClearUntil).toISOString() : null
+  };
+
+  try {
+    await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
+      method: "POST",
+      headers: {
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify([row]),
+      expectText: true
+    });
+  } catch (err) {
+    if (isMissingManualColumnError(err)) {
+      throw new Error("manual alert columns are missing; run the Supabase ALTER TABLE SQL first");
+    }
+    throw err;
+  }
+
+  return readLatestSnapshot(cleanDeviceId);
+}
+
 module.exports = {
+  MANUAL_CLEAR_OVERRIDE_MS,
+  buildCloudState,
   hasSupabase,
   normalizeSnapshot,
   readLatestSnapshot,
+  updateManualAlert,
   upsertRadarSnapshot
 };

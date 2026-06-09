@@ -1,6 +1,6 @@
 "use strict";
 
-const { hasSupabase, normalizeSnapshot, upsertRadarSnapshot } = require("./_lib/radar_store");
+const { hasSupabase, normalizeSnapshot, readLatestSnapshot, upsertRadarSnapshot } = require("./_lib/radar_store");
 
 function setHeaders(res) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -42,7 +42,7 @@ async function readJsonBody(req) {
     let raw = "";
     req.on("data", (chunk) => {
       raw += chunk;
-      if (raw.length > 1024 * 1024) {
+      if (raw.length > 5 * 1024 * 1024) {
         reject(new Error("payload too large"));
       }
     });
@@ -81,11 +81,15 @@ module.exports = async function handler(req, res) {
     const body = await readJsonBody(req);
     const snapshot = normalizeSnapshot(body);
     const result = await upsertRadarSnapshot(snapshot);
+    const latest = await readLatestSnapshot(snapshot.deviceId);
+    const cloud = latest && latest.cloud ? latest.cloud : snapshot.cloud;
 
     sendJson(res, 200, {
       ok: true,
       storage: result.storage,
       supabase: hasSupabase(),
+      cloud,
+      correction: cloud && cloud.correction ? cloud.correction : undefined,
       data: snapshot
     });
   } catch (err) {
@@ -95,4 +99,3 @@ module.exports = async function handler(req, res) {
     });
   }
 };
-
