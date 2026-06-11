@@ -261,6 +261,7 @@ function getCameraViewState() {
 
   return {
     alert: alertActive,
+    uploaded: hasUploadedCameraImage,
     imageUrl,
     badge: alertActive ? "事故告警" : "正常",
     caption
@@ -342,6 +343,7 @@ function renderCamera() {
   }
   const view = getCameraViewState();
   refs.cameraFrame.classList.toggle("alert", view.alert);
+  refs.cameraFrame.classList.toggle("uploaded", view.uploaded);
   if (refs.cameraImage.getAttribute("src") !== view.imageUrl) {
     refs.cameraImage.setAttribute("src", view.imageUrl);
   }

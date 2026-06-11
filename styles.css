@@ -699,6 +699,10 @@ main {
   background: rgba(232, 241, 246, 0.96);
 }
 
+.camera-frame.uploaded img {
+  object-fit: cover;
+}
+
 .camera-badge {
   position: absolute;
   z-index: 1;
