@@ -1,7 +1,7 @@
 "use strict";
 
 const CACHE_KEY = "__xzxRadarLatestCache";
-const MANUAL_CLEAR_OVERRIDE_MS = 10000;
+const MANUAL_CLEAR_OVERRIDE_MS = 30000;
 
 function getCache() {
   if (!globalThis[CACHE_KEY]) {
