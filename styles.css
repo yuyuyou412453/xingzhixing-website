@@ -673,6 +673,9 @@ main {
 
 .camera-frame.uploaded {
   padding: 0;
+  width: min(100%, var(--camera-display-width, 1040px));
+  height: auto;
+  aspect-ratio: var(--camera-aspect-ratio, 4 / 3);
 }
 
 .camera-frame::after {
@@ -706,7 +709,7 @@ main {
 .camera-frame.uploaded img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center center;
   border-radius: var(--radius);
 }
