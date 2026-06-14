@@ -1,5 +1,6 @@
 const appState = {
   manualAlert: false,
+  brokenCameraImageUrl: "",
   snapshot: {
     timestamp: Date.now(),
     environment: {
@@ -107,7 +108,19 @@ function syncCameraImageLayout() {
 }
 
 if (refs.cameraImage) {
-  refs.cameraImage.addEventListener("load", syncCameraImageLayout);
+  refs.cameraImage.addEventListener("load", () => {
+    if (refs.cameraImage.currentSrc && refs.cameraImage.currentSrc === appState.brokenCameraImageUrl) {
+      appState.brokenCameraImageUrl = "";
+    }
+    syncCameraImageLayout();
+  });
+  refs.cameraImage.addEventListener("error", () => {
+    const failedSrc = refs.cameraImage.getAttribute("src") || "";
+    if (failedSrc && failedSrc !== CAMERA_NORMAL_IMAGE && failedSrc !== CAMERA_ACCIDENT_IMAGE) {
+      appState.brokenCameraImageUrl = failedSrc;
+      renderCamera();
+    }
+  });
   if (refs.cameraImage.complete) {
     syncCameraImageLayout();
   }
@@ -244,6 +257,7 @@ function getCameraViewState() {
   const cleanImageName = cameraImage.split(/[?#]/)[0].split("/").pop();
   const hasUploadedCameraImage = Boolean(
     cameraImage &&
+      cameraImage !== appState.brokenCameraImageUrl &&
       cleanImageName !== CAMERA_NORMAL_IMAGE &&
       cleanImageName !== CAMERA_ACCIDENT_IMAGE
   );

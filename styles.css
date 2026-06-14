@@ -672,10 +672,10 @@ main {
 }
 
 .camera-frame.uploaded {
-  padding: 0;
-  width: min(100%, var(--camera-display-width, 1040px));
-  height: auto;
-  aspect-ratio: var(--camera-aspect-ratio, 4 / 3);
+  padding: 12px;
+  width: 100%;
+  height: clamp(360px, 45vw, 720px);
+  aspect-ratio: auto;
 }
 
 .camera-frame::after {
@@ -703,7 +703,7 @@ main {
   object-fit: contain;
   object-position: center center;
   border-radius: calc(var(--radius) - 4px);
-  background: rgba(232, 241, 246, 0.96);
+  background: rgba(4, 14, 28, 0.28);
 }
 
 .camera-frame.uploaded img {
@@ -711,7 +711,7 @@ main {
   height: 100%;
   object-fit: contain;
   object-position: center center;
-  border-radius: var(--radius);
+  border-radius: calc(var(--radius) - 4px);
 }
 
 .camera-badge {
