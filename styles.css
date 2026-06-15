@@ -678,6 +678,10 @@ main {
   aspect-ratio: auto;
 }
 
+.camera-frame.uploaded::after {
+  display: none;
+}
+
 .camera-frame::after {
   content: "";
   position: absolute;
@@ -711,10 +715,11 @@ main {
 .camera-frame.uploaded img {
   width: auto;
   height: auto;
-  max-width: min(100%, 640px);
+  max-width: min(100%, var(--camera-display-width, 360px));
   max-height: calc(100% - 24px);
   object-fit: contain;
   object-position: center center;
+  filter: none;
   border-radius: calc(var(--radius) - 4px);
 }
 

@@ -104,7 +104,7 @@ function syncCameraImageLayout() {
     return;
   }
   refs.cameraFrame.style.setProperty("--camera-aspect-ratio", `${naturalWidth} / ${naturalHeight}`);
-  refs.cameraFrame.style.setProperty("--camera-display-width", `${Math.min(Math.max(naturalWidth, 760), 1040)}px`);
+  refs.cameraFrame.style.setProperty("--camera-display-width", `${naturalWidth}px`);
 }
 
 if (refs.cameraImage) {
