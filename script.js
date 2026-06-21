@@ -103,7 +103,8 @@ function syncCameraImageLayout() {
   if (!naturalWidth || !naturalHeight) {
     return;
   }
-  const displayWidth = naturalWidth < 360 ? Math.round(naturalWidth * 1.6) : naturalWidth;
+  // Keep uploaded camera frames at native pixel width to avoid making 224x224 frames look blurry.
+  const displayWidth = naturalWidth;
   refs.cameraFrame.style.setProperty("--camera-aspect-ratio", `${naturalWidth} / ${naturalHeight}`);
   refs.cameraFrame.style.setProperty("--camera-display-width", `${displayWidth}px`);
 }
