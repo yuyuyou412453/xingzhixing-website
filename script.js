@@ -103,8 +103,9 @@ function syncCameraImageLayout() {
   if (!naturalWidth || !naturalHeight) {
     return;
   }
+  const displayWidth = naturalWidth < 360 ? Math.round(naturalWidth * 1.6) : naturalWidth;
   refs.cameraFrame.style.setProperty("--camera-aspect-ratio", `${naturalWidth} / ${naturalHeight}`);
-  refs.cameraFrame.style.setProperty("--camera-display-width", `${naturalWidth}px`);
+  refs.cameraFrame.style.setProperty("--camera-display-width", `${displayWidth}px`);
 }
 
 if (refs.cameraImage) {
