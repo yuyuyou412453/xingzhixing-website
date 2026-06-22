@@ -702,7 +702,7 @@ main {
   display: block;
   position: relative;
   z-index: 1;
-  width: 100%;
+  width: auto;
   height: 100%;
   max-width: 100%;
   max-height: 100%;
@@ -711,10 +711,6 @@ main {
   object-position: center center;
   border-radius: calc(var(--radius) - 4px);
   background: rgba(4, 14, 28, 0.28);
-  filter: none;
-  opacity: 1;
-  mix-blend-mode: normal;
-  image-rendering: auto;
 }
 
 .camera-frame.uploaded img {
@@ -725,9 +721,6 @@ main {
   object-fit: contain;
   object-position: center center;
   filter: none;
-  opacity: 1;
-  mix-blend-mode: normal;
-  image-rendering: auto;
   border-radius: calc(var(--radius) - 4px);
 }
 
