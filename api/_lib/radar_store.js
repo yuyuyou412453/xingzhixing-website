@@ -390,7 +390,7 @@ function snapshotToLatestRow(snapshot) {
     row.radar_y = snapshot.radar.y;
   }
   if (present.radar.alert) {
-    row.radar_alert = false;
+    row.radar_alert = snapshot.radar.alert;
   }
   if (present.environment.temperature) {
     row.env_temperature = snapshot.environment.temperature;
@@ -817,6 +817,214 @@ async function updateManualAlert(deviceId, alert) {
   return readLatestSnapshot(cleanDeviceId);
 }
 
+/* ─── Camera image chunk assembly ─────────────────────────────────────────── */
+
+const CHUNK_CACHE_KEY = "__xzxCameraChunkCache";
+const CHUNK_EXPIRY_MS = 30000; /* discard incomplete assemblies after 30 s */
+
+function getChunkCache() {
+  if (!globalThis[CHUNK_CACHE_KEY]) {
+    globalThis[CHUNK_CACHE_KEY] = new Map();
+  }
+  return globalThis[CHUNK_CACHE_KEY];
+}
+
+function hexToBase64(hex) {
+  return Buffer.from(hex, "hex").toString("base64");
+}
+
+/**
+ * Accumulate one chunk.  Returns an object:
+ *   { done: false }               – more chunks needed
+ *   { done: true, imageUrl }      – assembly complete, imageUrl is data:<mime>;base64,...
+ *   { done: true, imageUrl: "" }  – assembly failed (bad data)
+ */
+function assembleImageChunk({ deviceId, seq, total, offset, dataHex, mime, status, alert }) {
+  const chunkCache = getChunkCache();
+  const key = `${deviceId}:${seq}`;
+  const now = Date.now();
+
+  /* Evict expired entries */
+  chunkCache.forEach((entry, k) => {
+    if (now - entry.createdAt > CHUNK_EXPIRY_MS) {
+      chunkCache.delete(k);
+    }
+  });
+
+  if (!chunkCache.has(key)) {
+    chunkCache.set(key, {
+      createdAt: now,
+      total: Number(total),
+      received: 0,
+      chunks: [],
+      offsets: new Set(),
+      mime: String(mime || "image/jpeg"),
+      status,
+      alert
+    });
+  }
+
+  const entry = chunkCache.get(key);
+  const chunkOffset = Number(offset);
+  const chunkBytes = dataHex ? dataHex.length / 2 : 0;
+
+  if (!entry.offsets.has(chunkOffset)) {
+    entry.chunks.push({ offset: chunkOffset, dataHex: String(dataHex || "") });
+    entry.offsets.add(chunkOffset);
+    entry.received += chunkBytes;
+  } else {
+    const existing = entry.chunks.find((chunk) => chunk.offset === chunkOffset);
+    if (existing) {
+      existing.dataHex = String(dataHex || "");
+    }
+  }
+
+  const isDone = entry.received >= entry.total;
+  if (!isDone) {
+    return { done: false };
+  }
+
+  /* Sort by offset and concatenate */
+  entry.chunks.sort((a, b) => a.offset - b.offset);
+  const fullHex = entry.chunks.map((c) => c.dataHex).join("");
+  chunkCache.delete(key);
+
+  if (fullHex.length === 0) {
+    return { done: true, imageUrl: "" };
+  }
+
+  try {
+    const b64 = hexToBase64(fullHex);
+    const safeMime = entry.mime || "image/jpeg";
+    return { done: true, imageUrl: `data:${safeMime};base64,${b64}` };
+  } catch (_) {
+    return { done: true, imageUrl: "" };
+  }
+}
+
+/**
+ * Persist an assembled image URL into the camera snapshot in both memory and
+ * Supabase.  Only the camera fields are updated; all other fields are left
+ * untouched (merge-update).
+ */
+async function updateCameraImage(deviceId, imageUrl, status, alert) {
+  const cleanId = String(deviceId || "").trim();
+  if (!cleanId) throw new Error("deviceId required");
+
+  const cache = getCache();
+  const now = Date.now();
+  const previous = cache.get(cleanId) || null;
+
+  const updatedCamera = {
+    status: normalizeCameraStatus(status, Boolean(alert)),
+    alert: Boolean(alert),
+    imageUrl: String(imageUrl || ""),
+    updatedAt: now
+  };
+
+  if (previous) {
+    previous.camera = updatedCamera;
+    previous.timestamp = now;
+    cache.set(cleanId, previous);
+  } else {
+    const placeholder = {
+      deviceId: cleanId,
+      timestamp: now,
+      radar: normalizeRadar({}, null),
+      environment: normalizeEnvironment({}, null),
+      network: normalizeNetwork({}, null),
+      camera: updatedCamera
+    };
+    cache.set(cleanId, applyCloudState(placeholder));
+  }
+
+  if (!hasSupabase()) {
+    return { storage: "memory" };
+  }
+
+  const row = {
+    device_id: cleanId,
+    updated_at: new Date(now).toISOString(),
+    camera_status: updatedCamera.status,
+    camera_alert: updatedCamera.alert,
+    camera_image_url: updatedCamera.imageUrl,
+    camera_updated_at: new Date(now).toISOString()
+  };
+
+  try {
+    await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify([row]),
+      expectText: true
+    });
+    return { storage: "supabase" };
+  } catch (_err) {
+    /* Supabase unavailable or missing columns — memory cache already updated */
+    return { storage: "memory" };
+  }
+}
+
+/* Override the legacy version above: camera image writes must fail loudly when
+ * Supabase is configured, otherwise serverless instances can report success
+ * while later requests fall back to the default image. */
+async function updateCameraImage(deviceId, imageUrl, status, alert) {
+  const cleanId = String(deviceId || "").trim();
+  if (!cleanId) throw new Error("deviceId required");
+
+  const cache = getCache();
+  const now = Date.now();
+  const previous = cache.get(cleanId) || null;
+
+  const updatedCamera = {
+    status: normalizeCameraStatus(status, Boolean(alert)),
+    alert: Boolean(alert),
+    imageUrl: String(imageUrl || ""),
+    updatedAt: now
+  };
+
+  if (previous) {
+    previous.camera = updatedCamera;
+    previous.timestamp = now;
+    cache.set(cleanId, previous);
+  } else {
+    const placeholder = {
+      deviceId: cleanId,
+      timestamp: now,
+      radar: normalizeRadar({}, null),
+      environment: normalizeEnvironment({}, null),
+      network: normalizeNetwork({}, null),
+      camera: updatedCamera
+    };
+    cache.set(cleanId, applyCloudState(placeholder));
+  }
+
+  if (!hasSupabase()) {
+    return { storage: "memory" };
+  }
+
+  const row = {
+    device_id: cleanId,
+    updated_at: new Date(now).toISOString(),
+    camera_status: updatedCamera.status,
+    camera_alert: updatedCamera.alert,
+    camera_image_url: updatedCamera.imageUrl,
+    camera_updated_at: new Date(now).toISOString()
+  };
+
+  try {
+    await supabaseRequest("/rest/v1/telemetry_latest?on_conflict=device_id", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify([row]),
+      expectText: true
+    });
+    return { storage: "supabase" };
+  } catch (err) {
+    throw new Error(`camera image upsert failed: ${err.message || err}`);
+  }
+}
+
 module.exports = {
   MANUAL_CLEAR_OVERRIDE_MS,
   buildCloudState,
@@ -824,5 +1032,7 @@ module.exports = {
   normalizeSnapshot,
   readLatestSnapshot,
   updateManualAlert,
-  upsertRadarSnapshot
+  upsertRadarSnapshot,
+  assembleImageChunk,
+  updateCameraImage
 };
