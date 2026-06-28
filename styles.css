@@ -606,9 +606,7 @@ main {
 }
 
 #latencyHint {
-  width: 100%;
-  white-space: normal;
-  line-height: 1.35;
+  display: none;
 }
 
 .content-grid {

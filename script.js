@@ -28,8 +28,8 @@ const appState = {
     },
     network: {
       latency: 21,
-      radarLatency: 21,
-      wetLatency: 18,
+      radarLatency: null,
+      wetLatency: null,
       link: "stable"
     },
     camera: {
@@ -100,7 +100,7 @@ if (refs.latencyValue && refs.latencyValue.previousElementSibling) {
   refs.latencyValue.previousElementSibling.textContent = "SLE网络延迟";
 }
 if (refs.latencyHint) {
-  refs.latencyHint.textContent = "Radar -- | WET --";
+  refs.latencyHint.textContent = "";
 }
 
 function syncCameraImageLayout() {
@@ -395,6 +395,7 @@ function renderStatus() {
   refs.systemStatus.classList.toggle("alert", alertActive);
   refs.roadScene.classList.toggle("alert", alertActive);
   refs.systemStatus.textContent = alertActive ? "事故告警中" : "系统巡航中";
+  if (refs.latencyHint) refs.latencyHint.textContent = "";
   if (alertSource === "manualClear") {
     refs.sceneStatus.textContent = "云端解除告警校正中 · 正在下发正常状态";
     refs.sceneAlert.textContent = "云端校正为正常";
@@ -426,16 +427,16 @@ function renderData() {
   renderRadarFields(radar);
   refs.gpsValue.textContent = formatGps(gps);
   const radarLatency = toFiniteNumber(
-    firstDefined(network.radarLatency, network.radar, network.edgeRadarLatency, network.latency),
+    firstDefined(network.radarLatency, network.radar, network.edgeRadarLatency),
     NaN
   );
   const wetLatency = toFiniteNumber(
-    firstDefined(network.wetLatency, network.wet, network.envLatency, network.edgeWetLatency, network.latency),
+    firstDefined(network.wetLatency, network.wet, network.envLatency, network.edgeWetLatency),
     NaN
   );
   refs.latencyValue.innerHTML =
-    `Radar ${Number.isFinite(radarLatency) ? `${formatNumber(radarLatency, 0)}ms` : "--"}<br>` +
-    `WET ${Number.isFinite(wetLatency) ? `${formatNumber(wetLatency, 0)}ms` : "--"}`;
+    `Radar ${Number.isFinite(radarLatency) ? `${formatNumber(radarLatency, 0)}ms` : "null"}<br>` +
+    `WET ${Number.isFinite(wetLatency) ? `${formatNumber(wetLatency, 0)}ms` : "null"}`;
   if (refs.latencyHint) {
     const bestLatency = toFiniteNumber(network.latency, NaN);
     refs.latencyHint.textContent = Number.isFinite(bestLatency)
@@ -635,8 +636,7 @@ function normalizeSnapshot(payload) {
           network.radarLatency,
           network.radar,
           network.edgeRadarLatency,
-          previous.network.radarLatency,
-          latencyRaw
+          previous.network.radarLatency
         ),
         previous.network.radarLatency
       );
@@ -646,8 +646,7 @@ function normalizeSnapshot(payload) {
           network.wet,
           network.envLatency,
           network.edgeWetLatency,
-          previous.network.wetLatency,
-          latencyRaw
+          previous.network.wetLatency
         ),
         previous.network.wetLatency
       );
