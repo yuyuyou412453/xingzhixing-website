@@ -600,6 +600,17 @@ main {
   font-size: 36px;
 }
 
+#latencyValue {
+  font-size: 24px;
+  line-height: 1.3;
+}
+
+#latencyHint {
+  width: 100%;
+  white-space: normal;
+  line-height: 1.35;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: 1fr;

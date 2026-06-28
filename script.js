@@ -28,6 +28,8 @@ const appState = {
     },
     network: {
       latency: 21,
+      radarLatency: 21,
+      wetLatency: 18,
       link: "stable"
     },
     camera: {
@@ -82,6 +84,7 @@ const refs = {
   radarCoordUnitValue: document.getElementById("radarCoordUnitValue"),
   gpsValue: document.getElementById("gpsValue"),
   latencyValue: document.getElementById("latencyValue"),
+  latencyHint: document.getElementById("latencyHint"),
   cloudSyncValue: document.getElementById("cloudSyncValue"),
   cameraFrame: document.getElementById("cameraFrame"),
   cameraImage: document.getElementById("cameraImage"),
@@ -96,8 +99,8 @@ const refs = {
 if (refs.latencyValue && refs.latencyValue.previousElementSibling) {
   refs.latencyValue.previousElementSibling.textContent = "SLE网络延迟";
 }
-if (refs.latencyValue && refs.latencyValue.nextElementSibling) {
-  refs.latencyValue.nextElementSibling.textContent = "SLE Link";
+if (refs.latencyHint) {
+  refs.latencyHint.textContent = "Radar -- | WET --";
 }
 
 function syncCameraImageLayout() {
@@ -422,7 +425,23 @@ function renderData() {
   refs.altitudeValue.textContent = `${formatNumber(gps.alt, 1)}m`;
   renderRadarFields(radar);
   refs.gpsValue.textContent = formatGps(gps);
-  refs.latencyValue.textContent = `${formatNumber(network.latency, 0)}ms`;
+  const radarLatency = toFiniteNumber(
+    firstDefined(network.radarLatency, network.radar, network.edgeRadarLatency, network.latency),
+    NaN
+  );
+  const wetLatency = toFiniteNumber(
+    firstDefined(network.wetLatency, network.wet, network.envLatency, network.edgeWetLatency, network.latency),
+    NaN
+  );
+  refs.latencyValue.innerHTML =
+    `Radar ${Number.isFinite(radarLatency) ? `${formatNumber(radarLatency, 0)}ms` : "--"}<br>` +
+    `WET ${Number.isFinite(wetLatency) ? `${formatNumber(wetLatency, 0)}ms` : "--"}`;
+  if (refs.latencyHint) {
+    const bestLatency = toFiniteNumber(network.latency, NaN);
+    refs.latencyHint.textContent = Number.isFinite(bestLatency)
+      ? `当前展示两路时延，系统判定值取较小值 ${formatNumber(bestLatency, 0)}ms`
+      : "当前展示两路时延，系统判定值取较小值 --";
+  }
   if (alertSource === "manualClear") {
     refs.cloudSyncValue.textContent = "云端校正中";
   } else if (alertSource === "manual") {
@@ -611,8 +630,31 @@ function normalizeSnapshot(payload) {
         firstDefined(network.latency, network.sleLatency, previous.network.latency),
         previous.network.latency
       );
+      const radarLatencyRaw = toFiniteNumber(
+        firstDefined(
+          network.radarLatency,
+          network.radar,
+          network.edgeRadarLatency,
+          previous.network.radarLatency,
+          latencyRaw
+        ),
+        previous.network.radarLatency
+      );
+      const wetLatencyRaw = toFiniteNumber(
+        firstDefined(
+          network.wetLatency,
+          network.wet,
+          network.envLatency,
+          network.edgeWetLatency,
+          previous.network.wetLatency,
+          latencyRaw
+        ),
+        previous.network.wetLatency
+      );
       return {
         latency: clamp(latencyRaw, 0, 999),
+        radarLatency: clamp(radarLatencyRaw, 0, 999),
+        wetLatency: clamp(wetLatencyRaw, 0, 999),
         link: String(firstDefined(network.link, network.sleLink, previous.network.link))
       };
     })(),
@@ -707,6 +749,8 @@ class DataConnector {
         },
         network: {
           latency: clamp(prev.network.latency + randomBetween(-2, 2), 10, 80),
+          radarLatency: clamp(prev.network.radarLatency + randomBetween(-2, 2), 10, 80),
+          wetLatency: clamp(prev.network.wetLatency + randomBetween(-2, 2), 10, 80),
           link: "stable"
         },
         camera: {
