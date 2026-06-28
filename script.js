@@ -62,7 +62,7 @@ const appState = {
 };
 
 const DEFAULT_DEVICE_ID = "xzx-a12";
-const DEFAULT_HTTP_POLL_INTERVAL_MS = 2000;
+const DEFAULT_HTTP_POLL_INTERVAL_MS = 1000;
 const DEFAULT_HTTP_ENDPOINT = `/api/latest?deviceId=${encodeURIComponent(DEFAULT_DEVICE_ID)}`;
 const CAMERA_NORMAL_IMAGE = "normal.png";
 const CAMERA_ACCIDENT_IMAGE = "accident.png";
