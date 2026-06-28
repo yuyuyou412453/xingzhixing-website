@@ -1,6 +1,11 @@
 const appState = {
   manualAlert: false,
   brokenCameraImageUrl: "",
+  cameraDisplay: {
+    sourceUrl: "",
+    rotatedUrl: "",
+    pendingSourceUrl: ""
+  },
   snapshot: {
     timestamp: Date.now(),
     environment: {
@@ -105,6 +110,87 @@ function syncCameraImageLayout() {
   }
   refs.cameraFrame.style.setProperty("--camera-aspect-ratio", `${naturalWidth} / ${naturalHeight}`);
   refs.cameraFrame.style.setProperty("--camera-display-width", `${naturalWidth}px`);
+}
+
+function setCameraImageSrc(nextSrc) {
+  if (!refs.cameraImage) {
+    return;
+  }
+  if (refs.cameraImage.getAttribute("src") !== nextSrc) {
+    refs.cameraImage.setAttribute("src", nextSrc);
+  }
+}
+
+function isUploadedCameraImageUrl(url) {
+  if (!url) {
+    return false;
+  }
+  const cleanImageName = url.split(/[?#]/)[0].split("/").pop();
+  return cleanImageName !== CAMERA_NORMAL_IMAGE && cleanImageName !== CAMERA_ACCIDENT_IMAGE;
+}
+
+function applyRotatedCameraImage(sourceUrl) {
+  if (!sourceUrl || !refs.cameraImage) {
+    return;
+  }
+
+  if (appState.cameraDisplay.sourceUrl === sourceUrl && appState.cameraDisplay.rotatedUrl) {
+    setCameraImageSrc(appState.cameraDisplay.rotatedUrl);
+    syncCameraImageLayout();
+    return;
+  }
+
+  if (appState.cameraDisplay.pendingSourceUrl === sourceUrl) {
+    return;
+  }
+
+  appState.cameraDisplay.pendingSourceUrl = sourceUrl;
+
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    const width = img.naturalWidth || img.width;
+    const height = img.naturalHeight || img.height;
+    if (!width || !height) {
+      appState.cameraDisplay.pendingSourceUrl = "";
+      setCameraImageSrc(sourceUrl);
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = height;
+    canvas.height = width;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      appState.cameraDisplay.pendingSourceUrl = "";
+      setCameraImageSrc(sourceUrl);
+      return;
+    }
+
+    // 摄像头端发送前已顺时针旋转 90 度，这里逆时针旋回正常朝向。
+    ctx.translate(0, canvas.height);
+    ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(img, 0, 0);
+
+    const rotatedUrl = canvas.toDataURL("image/png");
+    appState.cameraDisplay.sourceUrl = sourceUrl;
+    appState.cameraDisplay.rotatedUrl = rotatedUrl;
+    appState.cameraDisplay.pendingSourceUrl = "";
+
+    const currentCameraUrl = (appState.snapshot.camera && appState.snapshot.camera.imageUrl) || "";
+    if (currentCameraUrl === sourceUrl && isUploadedCameraImageUrl(sourceUrl)) {
+      setCameraImageSrc(rotatedUrl);
+      syncCameraImageLayout();
+    }
+  };
+
+  img.onerror = () => {
+    appState.cameraDisplay.pendingSourceUrl = "";
+    setCameraImageSrc(sourceUrl);
+  };
+
+  img.src = sourceUrl;
 }
 
 if (refs.cameraImage) {
@@ -358,8 +444,11 @@ function renderCamera() {
   const view = getCameraViewState();
   refs.cameraFrame.classList.toggle("alert", view.alert);
   refs.cameraFrame.classList.toggle("uploaded", view.uploaded);
-  if (refs.cameraImage.getAttribute("src") !== view.imageUrl) {
-    refs.cameraImage.setAttribute("src", view.imageUrl);
+  if (view.uploaded) {
+    applyRotatedCameraImage(view.imageUrl);
+  } else {
+    appState.cameraDisplay.pendingSourceUrl = "";
+    setCameraImageSrc(view.imageUrl);
   }
   syncCameraImageLayout();
   refs.cameraBadge.textContent = view.badge;
