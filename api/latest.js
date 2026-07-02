@@ -56,6 +56,8 @@ module.exports = async function handler(req, res) {
       environment: snapshot.environment || null,
       network: snapshot.network || {
         latency: null,
+        radarLatency: null,
+        wetLatency: null,
         link: "unknown"
       },
       camera: snapshot.camera || {

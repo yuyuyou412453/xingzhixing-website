@@ -145,6 +145,19 @@ function normalizeEnvironment(raw, fallback) {
 function normalizeNetwork(raw, fallback) {
   const safeRaw = isObject(raw) ? raw : {};
   const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
+  const radarLatency = toNumber(
+    safeRaw.radarLatency ??
+      safeRaw.radar ??
+      safeRaw.edgeRadarLatency,
+    safeFallback.radarLatency ?? null
+  );
+  const wetLatency = toNumber(
+    safeRaw.wetLatency ??
+      safeRaw.wet ??
+      safeRaw.envLatency ??
+      safeRaw.edgeWetLatency,
+    safeFallback.wetLatency ?? null
+  );
 
   return {
     latency: toNumber(
@@ -154,6 +167,8 @@ function normalizeNetwork(raw, fallback) {
         safeRaw.ping,
       safeFallback.latency ?? null
     ),
+    radarLatency,
+    wetLatency,
     link: String(
       safeRaw.link ??
         safeRaw.status ??
@@ -306,6 +321,8 @@ function getPresence(payload) {
     network: {
       any: isObject(data.network),
       latency: hasAnyOwn(network, ["latency", "delay", "rtt", "ping"]),
+      radarLatency: hasAnyOwn(network, ["radarLatency", "radar", "edgeRadarLatency"]),
+      wetLatency: hasAnyOwn(network, ["wetLatency", "wet", "envLatency", "edgeWetLatency"]),
       link: hasAnyOwn(network, ["link", "status"])
     },
     camera: {
@@ -366,7 +383,7 @@ function snapshotToLatestRow(snapshot) {
   const present = snapshot._present || {
     radar: { targetCount: true, speed: true, distance: true, x: true, y: true, alert: true },
     environment: { temperature: true, humidity: true, pressure: true, altitude: true },
-    network: { latency: true, link: true },
+    network: { latency: true, radarLatency: true, wetLatency: true, link: true },
     camera: { status: true, alert: true, imageUrl: true, updatedAt: true }
   };
   const row = {
@@ -406,6 +423,12 @@ function snapshotToLatestRow(snapshot) {
   }
   if (present.network.latency) {
     row.net_latency = snapshot.network.latency;
+  }
+  if (present.network.radarLatency) {
+    row.net_radar_latency = snapshot.network.radarLatency;
+  }
+  if (present.network.wetLatency) {
+    row.net_wet_latency = snapshot.network.wetLatency;
   }
   if (present.network.link) {
     row.net_link = snapshot.network.link;
@@ -447,6 +470,8 @@ function latestRowToSnapshot(row) {
     },
     network: {
       latency: toNumber(row.net_latency, null),
+      radarLatency: toNumber(row.net_radar_latency, null),
+      wetLatency: toNumber(row.net_wet_latency, null),
       link: String(row.net_link ?? "unknown")
     },
     camera: {
@@ -517,7 +542,10 @@ function isMissingEnvironmentColumnError(err) {
 
 function isMissingNetworkColumnError(err) {
   const msg = String((err && err.message) || "").toLowerCase();
-  return msg.includes("net_latency") || msg.includes("net_link");
+  return msg.includes("net_latency") ||
+    msg.includes("net_radar_latency") ||
+    msg.includes("net_wet_latency") ||
+    msg.includes("net_link");
 }
 
 function isMissingCameraColumnError(err) {
@@ -546,7 +574,7 @@ function dropEnvironmentFromLatestRow(row) {
 }
 
 function dropNetworkFromLatestRow(row) {
-  const { net_latency, net_link, ...rest } = row;
+  const { net_latency, net_radar_latency, net_wet_latency, net_link, ...rest } = row;
   return rest;
 }
 
@@ -697,7 +725,7 @@ async function readLatestSnapshot(deviceId) {
       selectParts.push("env_temperature", "env_humidity", "env_pressure", "env_altitude");
     }
     if (caps.supportsNetwork) {
-      selectParts.push("net_latency", "net_link");
+      selectParts.push("net_latency", "net_radar_latency", "net_wet_latency", "net_link");
     }
     if (caps.supportsCamera) {
       selectParts.push("camera_status", "camera_alert", "camera_image_url", "camera_updated_at");

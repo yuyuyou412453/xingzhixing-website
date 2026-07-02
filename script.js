@@ -219,6 +219,10 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function clampNullable(value, min, max) {
+  return Number.isFinite(value) ? clamp(value, min, max) : null;
+}
+
 function randomBetween(min, max) {
   return Math.random() * (max - min) + min;
 }
@@ -235,6 +239,9 @@ function formatNumber(value, digits = 1) {
 }
 
 function toFiniteNumber(value, fallback) {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
   const n = Number(value);
   if (!Number.isFinite(n)) {
     return fallback;
@@ -396,6 +403,9 @@ function renderStatus() {
   refs.roadScene.classList.toggle("alert", alertActive);
   refs.systemStatus.textContent = alertActive ? "事故告警中" : "系统巡航中";
   if (refs.latencyHint) refs.latencyHint.textContent = "";
+  if (refs.latencyHint) {
+    refs.latencyHint.textContent = "";
+  }
   if (alertSource === "manualClear") {
     refs.sceneStatus.textContent = "云端解除告警校正中 · 正在下发正常状态";
     refs.sceneAlert.textContent = "云端校正为正常";
@@ -437,7 +447,7 @@ function renderData() {
   refs.latencyValue.innerHTML =
     `Radar ${Number.isFinite(radarLatency) ? `${formatNumber(radarLatency, 0)}ms` : "null"}<br>` +
     `WET ${Number.isFinite(wetLatency) ? `${formatNumber(wetLatency, 0)}ms` : "null"}`;
-  if (refs.latencyHint) {
+  if (false && refs.latencyHint) {
     const bestLatency = toFiniteNumber(network.latency, NaN);
     refs.latencyHint.textContent = Number.isFinite(bestLatency)
       ? `当前展示两路时延，系统判定值取较小值 ${formatNumber(bestLatency, 0)}ms`
@@ -651,9 +661,9 @@ function normalizeSnapshot(payload) {
         previous.network.wetLatency
       );
       return {
-        latency: clamp(latencyRaw, 0, 999),
-        radarLatency: clamp(radarLatencyRaw, 0, 999),
-        wetLatency: clamp(wetLatencyRaw, 0, 999),
+        latency: clampNullable(latencyRaw, 0, 999),
+        radarLatency: clampNullable(radarLatencyRaw, 0, 999),
+        wetLatency: clampNullable(wetLatencyRaw, 0, 999),
         link: String(firstDefined(network.link, network.sleLink, previous.network.link))
       };
     })(),
