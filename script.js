@@ -1,6 +1,7 @@
 const appState = {
   manualAlert: false,
   brokenCameraImageUrl: "",
+  fixedCameraImageMissing: false,
   cameraDisplay: {
     sourceUrl: "",
     rotatedUrl: "",
@@ -66,6 +67,7 @@ const DEFAULT_HTTP_POLL_INTERVAL_MS = 1000;
 const DEFAULT_HTTP_ENDPOINT = `/api/latest?deviceId=${encodeURIComponent(DEFAULT_DEVICE_ID)}`;
 const CAMERA_NORMAL_IMAGE = "normal.png";
 const CAMERA_ACCIDENT_IMAGE = "accident.png";
+const CAMERA_FIXED_IMAGE = "111.png";
 
 const refs = {
   systemStatus: document.getElementById("systemStatus"),
@@ -117,6 +119,10 @@ function syncCameraImageLayout() {
 
 function setCameraImageSrc(nextSrc) {
   if (!refs.cameraImage) {
+    return;
+  }
+  if (!nextSrc) {
+    refs.cameraImage.removeAttribute("src");
     return;
   }
   if (refs.cameraImage.getAttribute("src") !== nextSrc) {
@@ -198,6 +204,10 @@ function applyRotatedCameraImage(sourceUrl) {
 
 if (refs.cameraImage) {
   refs.cameraImage.addEventListener("load", () => {
+    const loadedSrc = refs.cameraImage.getAttribute("src") || "";
+    if (loadedSrc.split(/[?#]/)[0].split("/").pop() === CAMERA_FIXED_IMAGE) {
+      appState.fixedCameraImageMissing = false;
+    }
     if (refs.cameraImage.currentSrc && refs.cameraImage.currentSrc === appState.brokenCameraImageUrl) {
       appState.brokenCameraImageUrl = "";
     }
@@ -205,6 +215,11 @@ if (refs.cameraImage) {
   });
   refs.cameraImage.addEventListener("error", () => {
     const failedSrc = refs.cameraImage.getAttribute("src") || "";
+    if (failedSrc.split(/[?#]/)[0].split("/").pop() === CAMERA_FIXED_IMAGE) {
+      appState.fixedCameraImageMissing = true;
+      renderCamera();
+      return;
+    }
     if (failedSrc && failedSrc !== CAMERA_NORMAL_IMAGE && failedSrc !== CAMERA_ACCIDENT_IMAGE) {
       appState.brokenCameraImageUrl = failedSrc;
       renderCamera();
@@ -349,16 +364,25 @@ function getAlertSource() {
 function getCameraViewState() {
   const alertActive = isAlertActive();
   const source = getAlertSource();
-  const cameraImage = appState.snapshot.camera.imageUrl || "";
-  const cleanImageName = cameraImage.split(/[?#]/)[0].split("/").pop();
-  const hasUploadedCameraImage = Boolean(
-    cameraImage &&
-      cameraImage !== appState.brokenCameraImageUrl &&
-      cleanImageName !== CAMERA_NORMAL_IMAGE &&
-      cleanImageName !== CAMERA_ACCIDENT_IMAGE
-  );
-  const fallbackImage = alertActive ? CAMERA_ACCIDENT_IMAGE : CAMERA_NORMAL_IMAGE;
-  const imageUrl = hasUploadedCameraImage ? cameraImage : fallbackImage;
+  /*
+   * 原云端图片更新逻辑保留，不再执行：
+   *
+   * const cameraImage = appState.snapshot.camera.imageUrl || "";
+   * const cleanImageName = cameraImage.split(/[?#]/)[0].split("/").pop();
+   * const hasUploadedCameraImage = Boolean(
+   *   cameraImage &&
+   *     cameraImage !== appState.brokenCameraImageUrl &&
+   *     cleanImageName !== CAMERA_NORMAL_IMAGE &&
+   *     cleanImageName !== CAMERA_ACCIDENT_IMAGE
+   * );
+   * const fallbackImage = alertActive ? CAMERA_ACCIDENT_IMAGE : CAMERA_NORMAL_IMAGE;
+   * const imageUrl = hasUploadedCameraImage ? cameraImage : fallbackImage;
+   *
+   * 当前要求：交通图像固定显示 website/111.png。
+   * 若 111.png 不存在或加载失败，则保持图片框尺寸，但框内不显示任何图片内容。
+   */
+  const imageUrl = appState.fixedCameraImageMissing ? "" : CAMERA_FIXED_IMAGE;
+  const hasUploadedCameraImage = Boolean(imageUrl);
 
   let caption = "正常通行，未触发事故告警";
   if (source === "manualClear") {
@@ -372,6 +396,8 @@ function getCameraViewState() {
   return {
     alert: alertActive,
     uploaded: hasUploadedCameraImage,
+    empty: !imageUrl,
+    fixed: true,
     imageUrl,
     badge: alertActive ? "事故告警" : "正常",
     caption
@@ -474,7 +500,14 @@ function renderCamera() {
   const view = getCameraViewState();
   refs.cameraFrame.classList.toggle("alert", view.alert);
   refs.cameraFrame.classList.toggle("uploaded", view.uploaded);
-  if (view.uploaded) {
+  refs.cameraFrame.classList.toggle("camera-empty", view.empty);
+  if (view.empty) {
+    appState.cameraDisplay.pendingSourceUrl = "";
+    setCameraImageSrc("");
+  } else if (view.fixed) {
+    appState.cameraDisplay.pendingSourceUrl = "";
+    setCameraImageSrc(view.imageUrl);
+  } else if (view.uploaded) {
     applyRotatedCameraImage(view.imageUrl);
   } else {
     appState.cameraDisplay.pendingSourceUrl = "";

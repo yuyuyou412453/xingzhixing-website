@@ -691,6 +691,10 @@ main {
   display: none;
 }
 
+.camera-frame.camera-empty::after {
+  display: none;
+}
+
 .camera-frame::after {
   content: "";
   position: absolute;
@@ -731,6 +735,11 @@ main {
   object-position: center center;
   filter: none;
   border-radius: calc(var(--radius) - 4px);
+}
+
+.camera-frame.camera-empty img,
+.camera-frame.camera-empty .camera-badge {
+  display: none;
 }
 
 .camera-badge {
