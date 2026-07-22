@@ -1,43 +1,43 @@
 const appState = {
   manualAlert: false,
   brokenCameraImageUrl: "",
-  fixedCameraImageMissing: false,
   cameraDisplay: {
     sourceUrl: "",
     rotatedUrl: "",
     pendingSourceUrl: ""
   },
   snapshot: {
-    timestamp: Date.now(),
+    timestamp: null,
     environment: {
-      temperature: 23.0,
-      humidity: 57.0,
-      pressure: 1009.0
+      temperature: null,
+      humidity: null,
+      pressure: null,
+      altitude: null
     },
     radar: {
-      targetCount: 1,
-      speed: 0,
-      distance: 0.3,
-      x: 0,
-      y: 300,
+      targetCount: null,
+      speed: null,
+      distance: null,
+      x: null,
+      y: null,
       alert: false
     },
     gps: {
-      lat: 36.057,
-      lon: 103.833,
-      alt: 1526
+      lat: null,
+      lon: null,
+      alt: null
     },
     network: {
-      latency: 21,
+      latency: null,
       radarLatency: null,
       wetLatency: null,
-      link: "stable"
+      link: "unknown"
     },
     camera: {
       status: "normal",
       alert: false,
       imageUrl: "",
-      updatedAt: Date.now()
+      updatedAt: null
     },
     cloud: {
       alarmSynced: false,
@@ -67,7 +67,6 @@ const DEFAULT_HTTP_POLL_INTERVAL_MS = 1000;
 const DEFAULT_HTTP_ENDPOINT = `/api/latest?deviceId=${encodeURIComponent(DEFAULT_DEVICE_ID)}`;
 const CAMERA_NORMAL_IMAGE = "normal.png";
 const CAMERA_ACCIDENT_IMAGE = "accident.png";
-const CAMERA_FIXED_IMAGE = "111.png";
 
 const refs = {
   systemStatus: document.getElementById("systemStatus"),
@@ -119,10 +118,6 @@ function syncCameraImageLayout() {
 
 function setCameraImageSrc(nextSrc) {
   if (!refs.cameraImage) {
-    return;
-  }
-  if (!nextSrc) {
-    refs.cameraImage.removeAttribute("src");
     return;
   }
   if (refs.cameraImage.getAttribute("src") !== nextSrc) {
@@ -204,10 +199,6 @@ function applyRotatedCameraImage(sourceUrl) {
 
 if (refs.cameraImage) {
   refs.cameraImage.addEventListener("load", () => {
-    const loadedSrc = refs.cameraImage.getAttribute("src") || "";
-    if (loadedSrc.split(/[?#]/)[0].split("/").pop() === CAMERA_FIXED_IMAGE) {
-      appState.fixedCameraImageMissing = false;
-    }
     if (refs.cameraImage.currentSrc && refs.cameraImage.currentSrc === appState.brokenCameraImageUrl) {
       appState.brokenCameraImageUrl = "";
     }
@@ -215,11 +206,6 @@ if (refs.cameraImage) {
   });
   refs.cameraImage.addEventListener("error", () => {
     const failedSrc = refs.cameraImage.getAttribute("src") || "";
-    if (failedSrc.split(/[?#]/)[0].split("/").pop() === CAMERA_FIXED_IMAGE) {
-      appState.fixedCameraImageMissing = true;
-      renderCamera();
-      return;
-    }
     if (failedSrc && failedSrc !== CAMERA_NORMAL_IMAGE && failedSrc !== CAMERA_ACCIDENT_IMAGE) {
       appState.brokenCameraImageUrl = failedSrc;
       renderCamera();
@@ -236,10 +222,6 @@ function clamp(value, min, max) {
 
 function clampNullable(value, min, max) {
   return Number.isFinite(value) ? clamp(value, min, max) : null;
-}
-
-function randomBetween(min, max) {
-  return Math.random() * (max - min) + min;
 }
 
 function nowClock() {
@@ -364,40 +346,21 @@ function getAlertSource() {
 function getCameraViewState() {
   const alertActive = isAlertActive();
   const source = getAlertSource();
-  /*
-   * 原云端图片更新逻辑保留，不再执行：
-   *
-   * const cameraImage = appState.snapshot.camera.imageUrl || "";
-   * const cleanImageName = cameraImage.split(/[?#]/)[0].split("/").pop();
-   * const hasUploadedCameraImage = Boolean(
-   *   cameraImage &&
-   *     cameraImage !== appState.brokenCameraImageUrl &&
-   *     cleanImageName !== CAMERA_NORMAL_IMAGE &&
-   *     cleanImageName !== CAMERA_ACCIDENT_IMAGE
-   * );
-   * const fallbackImage = alertActive ? CAMERA_ACCIDENT_IMAGE : CAMERA_NORMAL_IMAGE;
-   * const imageUrl = hasUploadedCameraImage ? cameraImage : fallbackImage;
-   *
-   * 当前要求：交通图像固定显示 website/111.png。
-   * 若 111.png 不存在或加载失败，则保持图片框尺寸，但框内不显示任何图片内容。
-   */
-  const imageUrl = appState.fixedCameraImageMissing ? "" : CAMERA_FIXED_IMAGE;
-  const hasUploadedCameraImage = Boolean(imageUrl);
+  const fallbackImage = alertActive ? CAMERA_ACCIDENT_IMAGE : CAMERA_NORMAL_IMAGE;
+  const imageUrl = fallbackImage;
 
   let caption = "正常通行，未触发事故告警";
   if (source === "manualClear") {
-    caption = "云端解除告警正在短时校正，图片优先使用最新交通画面";
+    caption = "云端解除告警正在短时校正，显示内置正常通行示意图";
   } else if (source === "manual") {
-    caption = "云端手动告警已触发，图片优先使用最新交通画面";
+    caption = "云端手动告警已触发，显示内置事故告警示意图";
   } else if (source === "camera") {
-    caption = "摄像头端状态已同步云端，图片优先使用最新交通画面";
+    caption = "摄像头端状态已同步云端，显示内置事故告警示意图";
   }
 
   return {
     alert: alertActive,
-    uploaded: hasUploadedCameraImage,
-    empty: !imageUrl,
-    fixed: true,
+    uploaded: false,
     imageUrl,
     badge: alertActive ? "事故告警" : "正常",
     caption
@@ -459,7 +422,7 @@ function renderData() {
   refs.tempValue.textContent = `${formatNumber(environment.temperature, 1)}°C`;
   refs.humidityValue.textContent = `${formatNumber(environment.humidity, 1)}%`;
   refs.pressureValue.textContent = `${formatNumber(environment.pressure, 1)}hPa`;
-  refs.altitudeValue.textContent = `${formatNumber(gps.alt, 1)}m`;
+  refs.altitudeValue.textContent = `${formatNumber(environment.altitude, 1)}m`;
   renderRadarFields(radar);
   refs.gpsValue.textContent = formatGps(gps);
   const radarLatency = toFiniteNumber(
@@ -500,14 +463,7 @@ function renderCamera() {
   const view = getCameraViewState();
   refs.cameraFrame.classList.toggle("alert", view.alert);
   refs.cameraFrame.classList.toggle("uploaded", view.uploaded);
-  refs.cameraFrame.classList.toggle("camera-empty", view.empty);
-  if (view.empty) {
-    appState.cameraDisplay.pendingSourceUrl = "";
-    setCameraImageSrc("");
-  } else if (view.fixed) {
-    appState.cameraDisplay.pendingSourceUrl = "";
-    setCameraImageSrc(view.imageUrl);
-  } else if (view.uploaded) {
+  if (view.uploaded) {
     applyRotatedCameraImage(view.imageUrl);
   } else {
     appState.cameraDisplay.pendingSourceUrl = "";
@@ -587,8 +543,13 @@ function renderSnapshot() {
 }
 
 function pushHistory(snapshot) {
-  appState.history.temperature.push(snapshot.environment.temperature);
-  appState.history.humidity.push(snapshot.environment.humidity);
+  const temperature = toFiniteNumber(snapshot.environment.temperature, NaN);
+  const humidity = toFiniteNumber(snapshot.environment.humidity, NaN);
+  if (!Number.isFinite(temperature) || !Number.isFinite(humidity)) {
+    return;
+  }
+  appState.history.temperature.push(temperature);
+  appState.history.humidity.push(humidity);
   if (appState.history.temperature.length > 48) {
     appState.history.temperature.shift();
     appState.history.humidity.shift();
@@ -598,10 +559,6 @@ function pushHistory(snapshot) {
 function seedHistory() {
   appState.history.temperature = [];
   appState.history.humidity = [];
-  for (let i = 0; i < 18; i += 1) {
-    appState.history.temperature.push(clamp(appState.snapshot.environment.temperature + randomBetween(-1.4, 1.4), 14, 36));
-    appState.history.humidity.push(clamp(appState.snapshot.environment.humidity + randomBetween(-5, 5), 35, 92));
-  }
 }
 
 function normalizeSnapshot(payload) {
@@ -636,9 +593,22 @@ function normalizeSnapshot(payload) {
   return {
     timestamp: typeof payload.timestamp === "number" ? payload.timestamp : Date.now(),
     environment: {
-      temperature: Number(firstDefined(environment.temperature, previous.environment.temperature)),
-      humidity: Number(firstDefined(environment.humidity, previous.environment.humidity)),
-      pressure: Number(firstDefined(environment.pressure, previous.environment.pressure))
+      temperature: toFiniteNumber(
+        firstDefined(environment.temperature, previous.environment.temperature),
+        previous.environment.temperature
+      ),
+      humidity: toFiniteNumber(
+        firstDefined(environment.humidity, previous.environment.humidity),
+        previous.environment.humidity
+      ),
+      pressure: toFiniteNumber(
+        firstDefined(environment.pressure, previous.environment.pressure),
+        previous.environment.pressure
+      ),
+      altitude: toFiniteNumber(
+        firstDefined(environment.altitude, environment.alt, previous.environment.altitude),
+        previous.environment.altitude
+      )
     },
     radar: (() => {
       const x = toFiniteNumber(
@@ -665,9 +635,9 @@ function normalizeSnapshot(payload) {
       };
     })(),
     gps: {
-      lat: Number(firstDefined(gps.lat, previous.gps.lat)),
-      lon: Number(firstDefined(gps.lon, previous.gps.lon)),
-      alt: Number(firstDefined(gps.alt, previous.gps.alt))
+      lat: toFiniteNumber(firstDefined(gps.lat, previous.gps.lat), previous.gps.lat),
+      lon: toFiniteNumber(firstDefined(gps.lon, previous.gps.lon), previous.gps.lon),
+      alt: toFiniteNumber(firstDefined(gps.alt, previous.gps.alt), previous.gps.alt)
     },
     network: (() => {
       const latencyRaw = toFiniteNumber(
@@ -704,7 +674,7 @@ function normalizeSnapshot(payload) {
       return {
         status: normalizedCameraStatus,
         alert: cameraAlert,
-        imageUrl: String(firstDefined(camera.imageUrl, camera.photoUrl, camera.url, previous.camera.imageUrl, "")),
+        imageUrl: "",
         updatedAt: Number(firstDefined(camera.updatedAt, camera.timestamp, previous.camera.updatedAt, Date.now()))
       };
     })(),
@@ -764,54 +734,6 @@ class DataConnector {
     return true;
   }
 
-  useMock(intervalMs = 2000) {
-    this.stopActive();
-    this.setSource("Mock Simulation", "当前使用本地模拟数据");
-    this.timer = setInterval(() => {
-      const prev = appState.snapshot;
-      const next = {
-        timestamp: Date.now(),
-        environment: {
-          temperature: clamp(prev.environment.temperature + randomBetween(-0.4, 0.4), 14, 36),
-          humidity: clamp(prev.environment.humidity + randomBetween(-1.8, 1.8), 35, 92),
-          pressure: clamp(prev.environment.pressure + randomBetween(-0.9, 0.9), 990, 1030)
-        },
-        radar: {
-          targetCount: 1,
-          speed: clamp(prev.radar.speed + randomBetween(-8, 8), -120, 120),
-          distance: clamp(prev.radar.distance + randomBetween(-0.08, 0.08), 0.1, 9),
-          x: clamp(prev.radar.x + randomBetween(-120, 120), -600, 600),
-          y: clamp(prev.radar.y + randomBetween(-90, 90), 100, 1500),
-          alert: false
-        },
-        gps: {
-          lat: clamp(prev.gps.lat + randomBetween(-0.0005, 0.0005), 36.045, 36.079),
-          lon: clamp(prev.gps.lon + randomBetween(-0.0005, 0.0005), 103.817, 103.853),
-          alt: clamp(prev.gps.alt + randomBetween(-2, 2), 1503, 1568)
-        },
-        network: {
-          latency: clamp(prev.network.latency + randomBetween(-2, 2), 10, 80),
-          radarLatency: clamp(prev.network.radarLatency + randomBetween(-2, 2), 10, 80),
-          wetLatency: clamp(prev.network.wetLatency + randomBetween(-2, 2), 10, 80),
-          link: "stable"
-        },
-        camera: {
-          status: prev.camera.status,
-          alert: prev.camera.alert,
-          imageUrl: prev.camera.imageUrl,
-          updatedAt: prev.camera.updatedAt
-        },
-        cloud: {
-          ...prev.cloud,
-          alarmSynced: isAlertActive(),
-          manualAlert: appState.manualAlert,
-          finalAlert: isAlertActive()
-        }
-      };
-      this.push(next, "mock");
-    }, intervalMs);
-  }
-
   useWebSocket(url) {
     this.stopActive();
     this.setSource("WebSocket", `正在连接：${url}`);
@@ -819,7 +741,7 @@ class DataConnector {
       this.ws = new WebSocket(url);
     } catch (error) {
       addEvent("error", "WebSocket 连接失败", error.message);
-      this.useMock();
+      this.setSource("WebSocket", "连接失败，保留最后一次真实数据");
       return;
     }
 
@@ -837,13 +759,13 @@ class DataConnector {
     });
 
     this.ws.addEventListener("close", () => {
-      addEvent("warn", "WebSocket 已断开", "已自动切回模拟数据");
-      this.useMock();
+      addEvent("warn", "WebSocket 已断开", "保留最后一次真实数据");
+      this.setSource("WebSocket", "已断开，保留最后一次真实数据");
     });
 
     this.ws.addEventListener("error", () => {
-      addEvent("error", "WebSocket 错误", "已自动切回模拟数据");
-      this.useMock();
+      addEvent("error", "WebSocket 错误", "保留最后一次真实数据");
+      this.setSource("WebSocket", "连接异常，保留最后一次真实数据");
     });
   }
 
@@ -851,6 +773,9 @@ class DataConnector {
     this.stopActive();
     this.setSource("HTTP Polling", `轮询周期：${intervalMs}ms`);
     const fetchOnce = async () => {
+      if (this.pollAbort) {
+        return;
+      }
       this.pollAbort = new AbortController();
       try {
         const response = await fetch(url, { signal: this.pollAbort.signal, cache: "no-store" });
@@ -874,9 +799,7 @@ function handleIncomingSnapshot(snapshot, sourceName) {
   appState.manualAlert = Boolean(snapshot.cloud && snapshot.cloud.manualAlert);
   pushHistory(snapshot);
   renderSnapshot();
-  if (sourceName !== "mock") {
-    addEvent("info", "数据已更新", `source=${sourceName}`);
-  }
+  addEvent("info", "数据已更新", `source=${sourceName}`);
 }
 
 const connector = new DataConnector(handleIncomingSnapshot);
@@ -980,9 +903,6 @@ function exposeBridge() {
     useHttp(url, intervalMs = 3000) {
       connector.useHttp(url, intervalMs);
     },
-    useMock(intervalMs = 2000) {
-      connector.useMock(intervalMs);
-    }
   };
 }
 

@@ -11,7 +11,14 @@ create table if not exists telemetry_latest (
   env_humidity numeric,
   env_pressure numeric,
   env_altitude numeric,
+  gps_lat numeric,
+  gps_lon numeric,
+  gps_alt numeric,
+  gps_fix_quality int,
+  gps_satellites int,
   net_latency numeric,
+  net_radar_latency numeric,
+  net_wet_latency numeric,
   net_link text,
   camera_status text,
   camera_alert boolean,
@@ -25,7 +32,14 @@ alter table telemetry_latest add column if not exists env_temperature numeric;
 alter table telemetry_latest add column if not exists env_humidity numeric;
 alter table telemetry_latest add column if not exists env_pressure numeric;
 alter table telemetry_latest add column if not exists env_altitude numeric;
+alter table telemetry_latest add column if not exists gps_lat numeric;
+alter table telemetry_latest add column if not exists gps_lon numeric;
+alter table telemetry_latest add column if not exists gps_alt numeric;
+alter table telemetry_latest add column if not exists gps_fix_quality int;
+alter table telemetry_latest add column if not exists gps_satellites int;
 alter table telemetry_latest add column if not exists net_latency numeric;
+alter table telemetry_latest add column if not exists net_radar_latency numeric;
+alter table telemetry_latest add column if not exists net_wet_latency numeric;
 alter table telemetry_latest add column if not exists net_link text;
 alter table telemetry_latest add column if not exists camera_status text;
 alter table telemetry_latest add column if not exists camera_alert boolean;

@@ -66,6 +66,20 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  /*
+   * Status-only mode:
+   * Real camera JPEG chunk upload is intentionally disabled because it can
+   * block regular telemetry updates on the board. Keep the legacy assembly code
+   * below for future recovery, but do not write camera image URLs anymore.
+   */
+  sendJson(res, 200, {
+    ok: true,
+    done: true,
+    disabled: true,
+    message: "camera image stream disabled; use /api/radar for camera status"
+  });
+  return;
+
   const deviceId = String(body.deviceId || body.device_id || "").trim();
   const cam = body.camera || {};
   const seq = Number(cam.seq ?? 0);

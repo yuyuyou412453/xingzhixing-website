@@ -66,10 +66,12 @@ module.exports = async function handler(req, res) {
         imageUrl: "",
         updatedAt: snapshot.timestamp
       },
-      gps: {
-        alt: snapshot.environment && Number.isFinite(Number(snapshot.environment.altitude))
-          ? Number(snapshot.environment.altitude)
-          : null
+      gps: snapshot.gps || {
+        lat: null,
+        lon: null,
+        alt: null,
+        fixQuality: 0,
+        satellites: 0
       },
       cloud: snapshot.cloud || {
         alarmSynced: Boolean(snapshot.camera && snapshot.camera.alert),

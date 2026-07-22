@@ -15,6 +15,7 @@ function getSchemaCaps() {
   return {
     supportsRadarXY: true,
     supportsEnvironment: true,
+    supportsGps: true,
     supportsNetwork: true,
     supportsCamera: true,
     supportsManual: true
@@ -142,6 +143,35 @@ function normalizeEnvironment(raw, fallback) {
   };
 }
 
+function normalizeGps(raw, fallback) {
+  const safeRaw = isObject(raw) ? raw : {};
+  const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
+
+  return {
+    lat: toNumber(
+      safeRaw.lat ?? safeRaw.latitude,
+      safeFallback.lat ?? null
+    ),
+    lon: toNumber(
+      safeRaw.lon ?? safeRaw.lng ?? safeRaw.longitude,
+      safeFallback.lon ?? null
+    ),
+    alt: toNumber(
+      safeRaw.alt ?? safeRaw.altitude ??
+        (safeRaw.alt_x10 !== undefined ? Number(safeRaw.alt_x10) / 10 : undefined),
+      safeFallback.alt ?? null
+    ),
+    fixQuality: Math.max(0, toInteger(
+      safeRaw.fixQuality ?? safeRaw.fix_quality,
+      safeFallback.fixQuality ?? 0
+    )),
+    satellites: Math.max(0, toInteger(
+      safeRaw.satellites ?? safeRaw.sats ?? safeRaw.sat,
+      safeFallback.satellites ?? 0
+    ))
+  };
+}
+
 function normalizeNetwork(raw, fallback) {
   const safeRaw = isObject(raw) ? raw : {};
   const safeFallback = fallback && typeof fallback === "object" ? fallback : {};
@@ -228,7 +258,8 @@ function normalizeCamera(raw, fallback) {
     safeRaw.status ?? safeRaw.state ?? safeRaw.code ?? safeRaw.statusCode ?? safeFallback.status,
     alert
   );
-  const imageUrl = normalizeCameraImageUrl(safeRaw, safeFallback.imageUrl);
+  /* Status-only mode: keep legacy image parser above, but do not persist live images. */
+  const imageUrl = "";
 
   return {
     status,
@@ -298,6 +329,7 @@ function getPresence(payload) {
   const data = payload && typeof payload === "object" ? payload : {};
   const radar = isObject(data.radar) ? data.radar : {};
   const environment = isObject(data.environment) ? data.environment : {};
+  const gps = isObject(data.gps) ? data.gps : {};
   const network = isObject(data.network) ? data.network : {};
   const camera = getCameraRaw(data);
 
@@ -317,6 +349,14 @@ function getPresence(payload) {
       humidity: hasAnyOwn(environment, ["humidity", "humi", "humidity_x10"]),
       pressure: hasAnyOwn(environment, ["pressure", "pressure_hpa", "pressure_x10"]),
       altitude: hasAnyOwn(environment, ["altitude", "alt", "altitude_x10"])
+    },
+    gps: {
+      any: isObject(data.gps),
+      lat: hasAnyOwn(gps, ["lat", "latitude"]),
+      lon: hasAnyOwn(gps, ["lon", "lng", "longitude"]),
+      alt: hasAnyOwn(gps, ["alt", "altitude", "alt_x10"]),
+      fixQuality: hasAnyOwn(gps, ["fixQuality", "fix_quality"]),
+      satellites: hasAnyOwn(gps, ["satellites", "sats", "sat"])
     },
     network: {
       any: isObject(data.network),
@@ -374,6 +414,7 @@ function normalizeSnapshot(payload) {
     _present: getPresence(data),
     radar: normalizeRadar(data.radar, previous ? previous.radar : null),
     environment: normalizeEnvironment(data.environment, previous ? previous.environment : null),
+    gps: normalizeGps(data.gps, previous ? previous.gps : null),
     network: normalizeNetwork(data.network, previous ? previous.network : null),
     camera: normalizeCamera(getCameraRaw(data), previous ? previous.camera : null)
   };
@@ -383,6 +424,7 @@ function snapshotToLatestRow(snapshot) {
   const present = snapshot._present || {
     radar: { targetCount: true, speed: true, distance: true, x: true, y: true, alert: true },
     environment: { temperature: true, humidity: true, pressure: true, altitude: true },
+    gps: { lat: true, lon: true, alt: true, fixQuality: true, satellites: true },
     network: { latency: true, radarLatency: true, wetLatency: true, link: true },
     camera: { status: true, alert: true, imageUrl: true, updatedAt: true }
   };
@@ -421,6 +463,21 @@ function snapshotToLatestRow(snapshot) {
   if (present.environment.altitude) {
     row.env_altitude = snapshot.environment.altitude;
   }
+  if (present.gps && present.gps.lat) {
+    row.gps_lat = snapshot.gps.lat;
+  }
+  if (present.gps && present.gps.lon) {
+    row.gps_lon = snapshot.gps.lon;
+  }
+  if (present.gps && present.gps.alt) {
+    row.gps_alt = snapshot.gps.alt;
+  }
+  if (present.gps && present.gps.fixQuality) {
+    row.gps_fix_quality = snapshot.gps.fixQuality;
+  }
+  if (present.gps && present.gps.satellites) {
+    row.gps_satellites = snapshot.gps.satellites;
+  }
   if (present.network.latency) {
     row.net_latency = snapshot.network.latency;
   }
@@ -439,9 +496,7 @@ function snapshotToLatestRow(snapshot) {
   if (present.camera && present.camera.alert) {
     row.camera_alert = snapshot.camera.alert;
   }
-  if (present.camera && present.camera.imageUrl) {
-    row.camera_image_url = snapshot.camera.imageUrl;
-  }
+  /* Status-only mode: camera_image_url is intentionally not updated. */
   if (present.camera && (present.camera.updatedAt || present.camera.status || present.camera.alert || present.camera.imageUrl)) {
     row.camera_updated_at = new Date(snapshot.camera.updatedAt).toISOString();
   }
@@ -468,6 +523,13 @@ function latestRowToSnapshot(row) {
       pressure: toNumber(row.env_pressure, null),
       altitude: toNumber(row.env_altitude, null)
     },
+    gps: {
+      lat: toNumber(row.gps_lat, null),
+      lon: toNumber(row.gps_lon, null),
+      alt: toNumber(row.gps_alt, null),
+      fixQuality: Math.max(0, toInteger(row.gps_fix_quality, 0)),
+      satellites: Math.max(0, toInteger(row.gps_satellites, 0))
+    },
     network: {
       latency: toNumber(row.net_latency, null),
       radarLatency: toNumber(row.net_radar_latency, null),
@@ -477,7 +539,7 @@ function latestRowToSnapshot(row) {
     camera: {
       status: normalizeCameraStatus(row.camera_status, toBoolean(row.camera_alert, false)),
       alert: toBoolean(row.camera_alert, false),
-      imageUrl: String(row.camera_image_url ?? ""),
+      imageUrl: "",
       updatedAt: normalizeTimestamp(Date.parse(row.camera_updated_at || row.updated_at || ""))
     },
     cloud: {
@@ -540,6 +602,15 @@ function isMissingEnvironmentColumnError(err) {
     msg.includes("env_altitude");
 }
 
+function isMissingGpsColumnError(err) {
+  const msg = String((err && err.message) || "").toLowerCase();
+  return msg.includes("gps_lat") ||
+    msg.includes("gps_lon") ||
+    msg.includes("gps_alt") ||
+    msg.includes("gps_fix_quality") ||
+    msg.includes("gps_satellites");
+}
+
 function isMissingNetworkColumnError(err) {
   const msg = String((err && err.message) || "").toLowerCase();
   return msg.includes("net_latency") ||
@@ -573,6 +644,11 @@ function dropEnvironmentFromLatestRow(row) {
   return rest;
 }
 
+function dropGpsFromLatestRow(row) {
+  const { gps_lat, gps_lon, gps_alt, gps_fix_quality, gps_satellites, ...rest } = row;
+  return rest;
+}
+
 function dropNetworkFromLatestRow(row) {
   const { net_latency, net_radar_latency, net_wet_latency, net_link, ...rest } = row;
   return rest;
@@ -599,6 +675,9 @@ async function upsertRadarSnapshot(snapshot) {
   if (!caps.supportsEnvironment) {
     latestRow = dropEnvironmentFromLatestRow(latestRow);
   }
+  if (!caps.supportsGps) {
+    latestRow = dropGpsFromLatestRow(latestRow);
+  }
   if (!caps.supportsNetwork) {
     latestRow = dropNetworkFromLatestRow(latestRow);
   }
@@ -618,10 +697,11 @@ async function upsertRadarSnapshot(snapshot) {
   } catch (err) {
     const missingXY = caps.supportsRadarXY && isMissingRadarXYColumnError(err);
     const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
+    const missingGps = caps.supportsGps && isMissingGpsColumnError(err);
     const missingNet = caps.supportsNetwork && isMissingNetworkColumnError(err);
     const missingCamera = caps.supportsCamera && isMissingCameraColumnError(err);
     const missingManual = caps.supportsManual && isMissingManualColumnError(err);
-    if (!missingXY && !missingEnv && !missingNet && !missingCamera && !missingManual) {
+    if (!missingXY && !missingEnv && !missingGps && !missingNet && !missingCamera && !missingManual) {
       throw err;
     }
     if (missingXY) {
@@ -629,6 +709,9 @@ async function upsertRadarSnapshot(snapshot) {
     }
     if (missingEnv) {
       caps.supportsEnvironment = false;
+    }
+    if (missingGps) {
+      caps.supportsGps = false;
     }
     if (missingNet) {
       caps.supportsNetwork = false;
@@ -645,6 +728,9 @@ async function upsertRadarSnapshot(snapshot) {
     }
     if (!caps.supportsEnvironment) {
       latestRow = dropEnvironmentFromLatestRow(latestRow);
+    }
+    if (!caps.supportsGps) {
+      latestRow = dropGpsFromLatestRow(latestRow);
     }
     if (!caps.supportsNetwork) {
       latestRow = dropNetworkFromLatestRow(latestRow);
@@ -666,6 +752,7 @@ async function upsertRadarSnapshot(snapshot) {
     return {
       storage: "supabase",
       supportsEnvironment: caps.supportsEnvironment,
+      supportsGps: caps.supportsGps,
       supportsNetwork: caps.supportsNetwork,
       supportsCamera: caps.supportsCamera
     };
@@ -697,6 +784,7 @@ async function upsertRadarSnapshot(snapshot) {
   return {
     storage: "supabase",
     supportsEnvironment: caps.supportsEnvironment,
+    supportsGps: caps.supportsGps,
     supportsNetwork: caps.supportsNetwork,
     supportsCamera: caps.supportsCamera
   };
@@ -723,6 +811,9 @@ async function readLatestSnapshot(deviceId) {
     }
     if (caps.supportsEnvironment) {
       selectParts.push("env_temperature", "env_humidity", "env_pressure", "env_altitude");
+    }
+    if (caps.supportsGps) {
+      selectParts.push("gps_lat", "gps_lon", "gps_alt", "gps_fix_quality", "gps_satellites");
     }
     if (caps.supportsNetwork) {
       selectParts.push("net_latency", "net_radar_latency", "net_wet_latency", "net_link");
@@ -752,10 +843,11 @@ async function readLatestSnapshot(deviceId) {
   } catch (err) {
     const missingXY = caps.supportsRadarXY && isMissingRadarXYColumnError(err);
     const missingEnv = caps.supportsEnvironment && isMissingEnvironmentColumnError(err);
+    const missingGps = caps.supportsGps && isMissingGpsColumnError(err);
     const missingNet = caps.supportsNetwork && isMissingNetworkColumnError(err);
     const missingCamera = caps.supportsCamera && isMissingCameraColumnError(err);
     const missingManual = caps.supportsManual && isMissingManualColumnError(err);
-    if (!missingXY && !missingEnv && !missingNet && !missingCamera && !missingManual) {
+    if (!missingXY && !missingEnv && !missingGps && !missingNet && !missingCamera && !missingManual) {
       throw err;
     }
     if (missingXY) {
@@ -763,6 +855,9 @@ async function readLatestSnapshot(deviceId) {
     }
     if (missingEnv) {
       caps.supportsEnvironment = false;
+    }
+    if (missingGps) {
+      caps.supportsGps = false;
     }
     if (missingNet) {
       caps.supportsNetwork = false;
@@ -808,6 +903,7 @@ async function updateManualAlert(deviceId, alert) {
       timestamp: now,
       radar: normalizeRadar({}, null),
       environment: normalizeEnvironment({}, null),
+      gps: normalizeGps({}, null),
       network: normalizeNetwork({}, null),
       camera: normalizeCamera({}, null)
     };
@@ -960,6 +1056,7 @@ async function updateCameraImage(deviceId, imageUrl, status, alert) {
       timestamp: now,
       radar: normalizeRadar({}, null),
       environment: normalizeEnvironment({}, null),
+      gps: normalizeGps({}, null),
       network: normalizeNetwork({}, null),
       camera: updatedCamera
     };
@@ -1021,6 +1118,7 @@ async function updateCameraImage(deviceId, imageUrl, status, alert) {
       timestamp: now,
       radar: normalizeRadar({}, null),
       environment: normalizeEnvironment({}, null),
+      gps: normalizeGps({}, null),
       network: normalizeNetwork({}, null),
       camera: updatedCamera
     };

@@ -1,88 +1,170 @@
-﻿# 星智行网站上线与长期维护指南
+# 星智行 Web 看板
 
-本目录为纯静态站点，可通过 Git 自动部署到 Vercel 或 Netlify。
+本目录包含星智行的 Web 可视化页面和 Serverless API。页面用于展示设备上传的雷达、环境、GPS、网络、摄像头和告警状态；API 用于接收设备遥测、读取最新快照、可选上传摄像头图片分片和处理手动告警。
 
 ## 目录结构
 
-- `index.html`：主页面
-- `styles.css`：样式
-- `script.js`：交互逻辑
-- `404.html`：自定义 404 页面
-- `robots.txt`：搜索引擎抓取规则
-- `sitemap.xml`：站点地图
-- `site.webmanifest`：PWA 基础配置
-- `favicon.svg`：站点图标
-- `og-cover.svg`：社交分享封面
-- `vercel.json`：Vercel 生产头配置
-- `netlify.toml`：Netlify 生产头配置
+```text
+website/
+├── index.html
+├── styles.css
+├── script.js
+├── normal.png
+├── accident.png
+├── api/
+│   ├── radar.js
+│   ├── latest.js
+│   ├── camera-image-chunk.js
+│   ├── alert.js
+│   └── _lib/radar_store.js
+├── sql/radar_tables.sql
+├── .env.example
+├── vercel.json
+└── netlify.toml
+```
 
-## 1) 推荐自动部署方式（长期维护）
+## 本地预览
 
-### 方式 A：Vercel（推荐）
+静态页面可直接打开：
 
-1. 将项目推送到 GitHub 仓库。
-2. 登录 Vercel，点击 `Add New -> Project`。
-3. 选择该仓库并导入。
-4. Root Directory 选择 `website`。
-5. Build Command 留空，Output Directory 留空（静态站）。
-6. 点击 Deploy。
-7. 之后每次 `git push` 自动触发部署。
+```text
+index.html
+```
 
-### 方式 B：Netlify
+如果需要本地调试 API，建议使用 Vercel CLI 或其他兼容 Node.js Serverless Function 的运行环境。
 
-1. 将项目推送到 GitHub 仓库。
-2. 登录 Netlify，点击 `Add new site -> Import an existing project`。
-3. 选择该仓库。
-4. Base directory 填 `website`。
-5. Build command 留空，Publish directory 填 `website`（或 `.`，视 Base directory 是否已设）。
-6. 点击 Deploy。
-7. 后续每次 `git push` 自动部署。
+## 部署
 
-## 2) 首次上线前必须替换的内容
+### Vercel
 
-请把以下占位域名 `https://traffic-sign.example.com/` 改成你的真实域名：
+1. 导入仓库。
+2. Root Directory 选择 `website`。
+3. Build Command 留空。
+4. Output Directory 留空。
+5. 配置环境变量后部署。
 
-- `index.html` 中：
-  - `canonical`
-  - `og:url`
-  - `og:image`
-- `robots.txt` 中 `Sitemap` 地址
-- `sitemap.xml` 中 `loc`
+### Netlify
 
-## 3) 域名与 HTTPS
+静态页面可以部署到 Netlify。当前 API 采用 Vercel Serverless Function 风格，如需在 Netlify 上运行 API，需要按 Netlify Functions 的入口规范做适配。
 
-1. 在 Vercel 或 Netlify 后台绑定你的域名。
-2. 按平台提示添加 DNS 记录（通常是 CNAME 或 A 记录）。
-3. 等待证书自动签发（HTTPS 自动启用）。
+## 环境变量
 
-## 4) 每次发布前检查清单
+```text
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+XZX_DEVICE_TOKEN=
+```
 
-- 页面功能：场景切换、事故告警、语音交互、趋势图、拓扑联动可正常使用。
-- 移动端：320px~768px 断点下布局不溢出。
-- 元信息：title、description、OG 图、canonical 是否正确。
-- 索引文件：`robots.txt` 和 `sitemap.xml` 域名是否正确。
-- 404：任意错误路径是否展示 `404.html`。
-- 缓存：CSS/JS 变更后是否能强刷看到最新版本。
+- `SUPABASE_URL`：Supabase 项目地址。
+- `SUPABASE_SERVICE_ROLE_KEY`：Supabase 服务端密钥。
+- `XZX_DEVICE_TOKEN`：设备上传鉴权 Token，需要与固件中的 `CLOUD_DEVICE_TOKEN` 保持一致。
 
-## 5) 版本管理建议
+没有配置 Supabase 时，API 会退化为内存缓存，适合临时演示和调试。
 
-- 分支模型：
-  - `main`：生产环境
-  - `dev`：日常开发
-- 发布流程：
-  1. 功能开发合并到 `dev`
-  2. 验收后从 `dev` 合并到 `main`
-  3. 平台自动部署生产版本
-- 建议每次发布打 Tag：`v1.0.0`、`v1.1.0`...
+## Supabase 数据表
 
-## 6) 运维建议（轻量）
+在 Supabase SQL Editor 中执行：
 
-- 接入访问统计（如 Plausible / GA4）
-- 定期检查 Lighthouse 分数
-- 每月复核一次 `sitemap.xml` 与页面元信息
-- 改动较大时保留上一稳定版本，便于快速回滚
+```text
+sql/radar_tables.sql
+```
 
-## 7) 回滚方式
+该脚本会创建 `telemetry_latest` 和 `radar_logs`，用于保存设备最新快照和雷达日志。已有数据库升级时，还应执行：
 
-- Vercel/Netlify 均支持在部署历史中一键回滚到上一版本。
+```text
+sql/20260719_add_gps_columns.sql
+```
 
+遥测采用增量更新：本次请求只覆盖实际携带的字段，未携带字段保留数据库中的上一次有效值，不会写入伪造值或自动清零。
+
+## API
+
+### 上传设备快照
+
+```http
+POST /api/radar
+Content-Type: application/json
+X-Device-Token: <token>
+```
+
+```json
+{
+  "deviceId": "xzx-a12",
+  "timestamp": 1714900000000,
+  "radar": {
+    "targetCount": 1,
+    "speed": -20,
+    "distance": 800,
+    "x": 120,
+    "y": 800
+  },
+  "environment": {
+    "temperature": 26.3,
+    "humidity": 61.8,
+    "pressure": 1004.2,
+    "altitude": 80.5
+  },
+  "gps": {
+    "lat": 36.057,
+    "lon": 103.833,
+    "alt": 1518.6,
+    "fixQuality": 1,
+    "satellites": 6
+  },
+  "camera": {
+    "status": "normal",
+    "code": 1,
+    "alert": false,
+    "imageLen": 0
+  }
+}
+```
+
+当前主板固件默认关闭 JPEG 数据流上传以避免阻塞普通遥测，但仍会真实上传摄像头的 `normal/accident` 状态。`/api/camera-image-chunk` 接口保留为可选能力。
+
+### 读取最新快照
+
+```http
+GET /api/latest?deviceId=xzx-a12
+```
+
+### 上传摄像头图片分片
+
+```http
+POST /api/camera-image-chunk
+Content-Type: application/json
+X-Device-Token: <token>
+```
+
+```json
+{
+  "deviceId": "xzx-a12",
+  "camera": {
+    "seq": 1,
+    "total": 4096,
+    "offset": 0,
+    "dataHex": "ffd8...",
+    "mime": "image/jpeg",
+    "status": "accident",
+    "alert": true
+  }
+}
+```
+
+### 手动告警
+
+```http
+POST /api/alert
+Content-Type: application/json
+```
+
+```json
+{
+  "deviceId": "xzx-a12",
+  "alert": true
+}
+```
+
+## 域名配置
+
+`robots.txt` 和 `sitemap.xml` 中使用的是示例域名。部署到正式域名后，将其中的 URL 改为实际站点地址即可。
